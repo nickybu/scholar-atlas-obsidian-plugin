@@ -1,0 +1,31 @@
+{
+	"name": "scholar-atlas",
+	"version": "0.1.0",
+	"description": "Track the researchers you know, where they work and live, the institutions they've moved through, and their latest papers, filled in from OpenAlex and ORCID.",
+	"main": "main.js",
+	"type": "module",
+	"private": true,
+	"scripts": {
+		"dev": "node esbuild.config.mjs",
+		"build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
+		"test": "node --import ./test/register.mjs --test 'test/**/*.test.ts'",
+		"lint": "eslint .",
+		"install-vault": "node scripts/install-vault.mjs",
+		"version": "node version-bump.mjs && git add manifest.json versions.json"
+	},
+	"keywords": [],
+	"license": "MIT",
+	"devDependencies": {
+		"@eslint/js": "^9.39.4",
+		"@types/node": "^22.15.17",
+		"esbuild": "0.25.5",
+		"eslint": "^9.39.4",
+		"eslint-plugin-obsidianmd": "^0.4.2",
+		"globals": "^17.6.0",
+		"jiti": "^2.6.1",
+		"obsidian": "1.13.1",
+		"typescript": "^5.8.3",
+		"typescript-eslint": "^8.59.1",
+		"yaml": "^2.9.1"
+	}
+}

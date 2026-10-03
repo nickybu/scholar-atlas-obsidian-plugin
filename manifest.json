@@ -1,0 +1,9 @@
+{
+	"id": "scholar-atlas",
+	"name": "Scholar Atlas",
+	"version": "0.1.0",
+	"minAppVersion": "1.13.0",
+	"description": "Track the researchers you know, where they work and live, the institutions they've moved through, and their latest papers, filled in from OpenAlex and ORCID.",
+	"author": "YOUR NAME",
+	"isDesktopOnly": false
+}
