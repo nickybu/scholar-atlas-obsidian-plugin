@@ -51,6 +51,8 @@ who you met at a conference, who moved where.
    - a **photo**, in any of the ways described in [Photos](#photos).
 
 The note is created in your people folder (`People/` by default) and opened.
+If you choose people by tag instead (see [Which notes are people](#which-notes-are-people)),
+it goes where Obsidian puts new notes and gets your people tag.
 Add anything else the plugin can't know by hand.
 
 ### When there's no ID
@@ -153,9 +155,10 @@ Papers are written between two markers in the note:
 ```
 
 The markers and the papers heading are added to the end of the note if
-missing. Everything between them is regenerated on every update, so write
-your own notes outside them. The same goes for the collaborators section
-(`<!-- collaborators:start -->` / `<!-- collaborators:end -->`).
+missing. The collaborators section (`<!-- collaborators:start -->` /
+`<!-- collaborators:end -->`) works the same way. The plugin updates what's
+between the markers, but never removes anything you write there: see
+[Your writing is never removed](#your-writing-is-never-removed).
 
 ### Places
 
@@ -216,10 +219,10 @@ whenever their papers are fetched again.
 `model_systems` (e.g. "Mouse", "Zebrafish") come from the titles, abstracts
 and MeSH terms of their latest papers. They use a vocabulary of 108 terms
 from [neuro-labs-explorer](https://github.com/nickybu/neuro-labs-explorer).
-A term needs at least two papers, or one if they have fewer than three; up
-to 8 of each are kept, most frequent first. These two properties are kept
-in step with their papers, so edits to them are overwritten. Put your own
-tags in another property.
+A term needs at least two papers, or one if they have fewer than three, and
+each update adds up to 8 of each, most frequent first. Terms are only ever
+added: ones you typed, or that were found before, are never removed, so you
+can add your own freely.
 
 ### Photos
 
@@ -239,8 +242,10 @@ photo width, if that's bigger) and saved as JPEG, so a phone photo adds tens
 of kilobytes to your vault rather than megabytes. GIFs, SVGs and images that
 are already small are kept as they are.
 
-The image is saved as an attachment, following your **Files and links**
-settings, as `<person's name>.<ext>`. `photo` is set to a link to it, and the
+The image is saved in your photos folder (`Photos` by default) as
+`<person's name>.<ext>`, numbered if that name is taken. If you clear the
+**Photos folder** setting, photos follow Obsidian's **Files and links**
+attachment settings instead. `photo` is set to a link to the image, and the
 photo appears on their [profile card](#profile-card).
 
 You can also paste a link like `[[Ada.jpg]]` or an image URL into `photo`
@@ -277,14 +282,39 @@ One exception: for someone who's on ORCID but not OpenAlex, their papers come
 from their ORCID record, so that's still fetched (at most every few days) for
 their papers alone.
 
-### What gets overwritten
+### Your writing is never removed
 
-- Properties are only filled when empty.
-- City and country are filled as a pair, only when both are empty. A city
-  you typed is never mixed with a looked-up country.
-- **Update all people and refresh locations** is the exception. It overwrites
-  city, country, `institutions` and `previous_institutions`. It never blanks
-  a property it found nothing for.
+Scholar Atlas never deletes anything you write, in any note.
+
+- **Your own text** outside the plugin's sections is never touched.
+- **Inside the plugin's sections** (papers, collaborators, profile card, and
+  the research feed's list), each section carries a hidden signature: a
+  short fingerprint of every line the plugin wrote, in an Obsidian comment
+  (`%%sa:…%%`). When a section is updated, lines that still match are
+  replaced. Lines you added, or plugin lines you edited (say, a corrected
+  title), are moved to just below the section and kept for good. Sections
+  written by earlier versions have no signature, so any line that isn't
+  exactly in the plugin's format is kept the same way.
+- **Research feed note:** only its marked list is updated. Anything you add
+  above or below it, including properties, stays.
+- **Properties** are only filled when empty. City and country are filled as
+  a pair, only when both are empty, so a city you typed is never mixed with
+  a looked-up country.
+- **`methods` and `model_systems`** are only ever added to.
+- **Notes it creates** (people, places) are only filled in while empty;
+  after that, only their empty properties are filled.
+
+The one deliberate exception is **Update all people and refresh locations**,
+for when someone moves:
+- It replaces `city` and `country`.
+- It updates `institutions`, but institutions that are no longer current,
+  including ones you typed, move to `previous_institutions` rather than
+  disappearing.
+- It never blanks a property it found nothing for.
+
+Obsidian itself drops comments (`# …`) inside the properties block whenever
+a plugin updates properties. Keep notes about a person in the body of their
+note rather than as comments among the properties.
 
 ### Good to know
 
@@ -300,10 +330,15 @@ their papers alone.
 
 | Setting | Default | |
 |---|---|---|
-| People folder | `People` | Where person notes live. Notes in subfolders count too |
+| People folder | `People` | Person notes: notes in this folder and its subfolders. New people are created here |
+| People tags | — | Person notes: notes with any of these tags, e.g. `person, scientist` |
+| With both a folder and tags | In the folder, or tagged | Or: in the folder, and tagged |
 | Person template | `Templates/Person.md` | Used by **Add person**. If it doesn't exist, the built-in template is used |
-| Events folder | `Events` | Notes suggested in **Add person**'s *Met at* field |
+| Events folder | `Events` | Event notes, suggested in **Add person**'s *Met at* field |
+| Event tags | — | Event notes: notes with any of these tags |
+| With both a folder and tags (events) | In the folder, or tagged | Or: in the folder, and tagged |
 | Places folder | `Places` | Institution, city and country notes go in its `Institutions`, `Cities` and `Countries` subfolders |
+| Photos folder | `Photos` | Where people's photos are saved. Empty: follow Obsidian's attachment settings |
 | Research feed note | `Research feed.md` | Rebuilt after every update |
 | Papers per person | 10 | |
 | Research feed window | 90 days | |
@@ -311,6 +346,32 @@ their papers alone.
 | Check ORCID records every | 7 days | How often **Update all people** looks at each ORCID record. 0 checks every time |
 | Contact email | — | Optional. Sent to OpenAlex with each request, which gets faster, more reliable service |
 | API key | — | Optional OpenAlex API key, kept in Obsidian's keychain (see below) |
+
+### Which notes are people
+
+People (and events) can be chosen by folder, by tags, or both:
+
+- **Folder only** (the default, `People`): every note in the folder and its
+  subfolders.
+- **Tags only**: clear the folder and set tags such as `person`. Any note
+  with one of those tags counts, wherever it is. Nested tags count too, so
+  `#person/pi` matches `person`.
+- **Both**: choose whether a note needs to be in the folder *or* tagged, or
+  in the folder *and* tagged. The second picks out some notes in a shared
+  folder.
+
+The tags fields suggest your vault's tags as you type. Under each section,
+**Matching notes** shows how many notes are selected right now, with a few
+of their names, so you can see the effect of a change straight away.
+
+New people (from **Add person** or by clicking a collaborator) go in the
+people folder, or where Obsidian puts new notes if there's none. They're
+given the first people tag, so they count as people however you've set it
+up.
+
+Place notes created from now on list people using the same rule. Place notes
+created earlier keep the rule from when they were made, which is a `base`
+block you can edit.
 
 ### Your API key stays on your device
 
@@ -347,7 +408,7 @@ content is sent anywhere.
     in person notes;
   - new person notes from **Add person** or clicking a collaborator;
   - place notes in your places folder;
-  - photos you add, as attachments;
+  - photos you add, in your photos folder;
   - the research feed note.
 - **Nothing outside your vault** is read or written.
 
@@ -373,10 +434,10 @@ Source is in `src/`:
 | `people.ts` | Reading and writing person notes and the feed, and click-to-create |
 | `places.ts` | Institution, city and country notes |
 | `sources.ts` | OpenAlex and ORCID requests |
-| `profile.ts`, `papers.ts`, `photo.ts`, `card.ts`, `connections.ts`, `tagging.ts`, `countries.ts` | Pure logic and markdown rendering |
+| `profile.ts`, `papers.ts`, `photo.ts`, `card.ts`, `connections.ts`, `selector.ts`, `tagging.ts`, `countries.ts` | Pure logic and markdown rendering |
 | `vocab.ts` | Methods and model-systems vocabulary, generated from neuro-labs-explorer by `scripts/generate-vocab.py` |
 | `shrink-photo.ts` | Scaling photos down before saving |
-| `settings.ts`, `add-person-modal.ts`, `set-photo-modal.ts`, `photo-picker.ts`, `card-view.ts` | UI (styles in `styles.css`) |
+| `settings.ts`, `add-person-modal.ts`, `set-photo-modal.ts`, `photo-picker.ts`, `card-view.ts`, `tag-suggest.ts` | UI (styles in `styles.css`) |
 
 Tests are in `test/`:
 - **Unit tests** cover the pure modules.

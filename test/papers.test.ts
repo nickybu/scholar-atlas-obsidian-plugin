@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
 	blockPapers, END, getBlock, isCandidateList, paperLine, renderCandidates, renderFeed, renderWorks, setBlock, START, worksSummary,
 } from '../src/papers.ts';
+import { sign } from '../src/managed.ts';
 
 const work = { title: 'A [bracketed] <i>title</i> | piped', date: '2026-03-31', url: 'https://doi.org/10.1/a(b)', venue: 'J' };
 
@@ -25,10 +26,11 @@ test('candidates list IDs, ORCID and institutions', () => {
 	assert.match(renderCandidates([]), /No matches found by name/);
 });
 
-test('setBlock replaces only the marked block, or appends one', () => {
+test('setBlock replaces only the marked block (signed), or appends one', () => {
+	// "old" isn't in the plugin's format, so it's taken to be yours and kept just below.
 	const note = `---\na: 1\n---\nmy notes\n${START}\nold\n${END}\nmore notes\n`;
-	assert.equal(setBlock(note, 'new\n'), `---\na: 1\n---\nmy notes\n${START}\nnew\n${END}\nmore notes\n`);
-	assert.equal(setBlock('just notes\n\n', 'x\n'), `just notes\n\n## Papers\n${START}\nx\n${END}\n`);
+	assert.equal(setBlock(note, 'new\n'), `---\na: 1\n---\nmy notes\n${START}\n${sign('new\n')}${END}\nold\nmore notes\n`);
+	assert.equal(setBlock('just notes\n\n', 'x\n'), `just notes\n\n## Papers\n${START}\n${sign('x\n')}${END}\n`);
 });
 
 test('blockPapers reads dated lines inside the block only', () => {

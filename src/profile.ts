@@ -227,6 +227,42 @@ export function profileChanges(fm: Frontmatter, found: Profile, refresh: boolean
 	return changes;
 }
 
+const asList = (v: unknown): unknown[] => (Array.isArray(v) ? v : v == null || v === '' ? [] : [v]);
+
+/** What a place value shows: the alias or name of a link, else the text; lowercased, for comparing. */
+function placeKey(v: unknown): string {
+	if (typeof v !== 'string') return '';
+	const m = v.match(/^\[\[([^\]|]+)(?:\|([^\]]*))?\]\]$/);
+	return (m ? (m[2] ?? m[1]?.split('/').pop() ?? '') : v).trim().toLowerCase();
+}
+
+/** A list with new values added, keeping every existing one (case-insensitively deduplicated). */
+export function addToList(existing: unknown, add: string[]): unknown[] {
+	const out = asList(existing).filter((v) => v !== null && v !== '');
+	const seen = new Set(out.map(placeKey));
+	for (const v of add) {
+		if (!seen.has(placeKey(v))) {
+			seen.add(placeKey(v));
+			out.push(v);
+		}
+	}
+	return out;
+}
+
+/**
+ * When refreshing replaces someone's institutions, nothing is lost: places
+ * that are no longer current, and every previous one, stay in
+ * `previous_institutions`.
+ */
+export function keepOldPlaces(fm: Frontmatter, changes: Profile): Profile {
+	if (!changes.institutions && !changes.previous_institutions) return changes;
+	const current = changes.institutions ?? asList(fm.institutions).filter((v): v is string => typeof v === 'string');
+	const isCurrent = new Set(current.map(placeKey));
+	const previous = [...(changes.previous_institutions ?? []), ...asList(fm.institutions), ...asList(fm.previous_institutions)]
+		.filter((v): v is string => typeof v === 'string' && !!v.trim() && !isCurrent.has(placeKey(v)));
+	return { ...changes, previous_institutions: addToList([], previous) as string[] };
+}
+
 /** Drop keys whose value is empty, so only real findings are written. */
 export function compact(found: Profile): Profile {
 	return Object.fromEntries(Object.entries(found).filter(([, v]) => !isEmpty(v)));

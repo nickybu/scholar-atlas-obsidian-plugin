@@ -60,6 +60,13 @@ export function normalizePath(path: string): string {
 	return path.replace(/\\/g, '/').replace(/\/+/g, '/').replace(/^\/|\/$/g, '');
 }
 
+/** Tags from a note's properties and body, as Obsidian reports them (with `#`). */
+export function getAllTags(cache: { frontmatter?: Record<string, unknown>; tags?: { tag: string }[] }): string[] {
+	const fm = cache.frontmatter?.tags;
+	const own = (Array.isArray(fm) ? fm : typeof fm === 'string' ? fm.split(/[\s,]+/) : []).filter((t): t is string => typeof t === 'string' && !!t);
+	return [...own.map((t) => `#${t.replace(/^#/, '')}`), ...(cache.tags ?? []).map((t) => t.tag)];
+}
+
 export function parseYaml(text: string): unknown {
 	return YAML.parse(text);
 }
@@ -122,6 +129,11 @@ export class FakeVault {
 		for (let i = 1; i < parts.length; i++) this.folders.add(parts.slice(0, i).join('/'));
 	}
 
+	/** Vault events aren't simulated. */
+	on(): object {
+		return {};
+	}
+
 	text(path: string): string {
 		const v = this.files.get(path);
 		if (typeof v !== 'string') throw new Error(`No note at ${path}`);
@@ -134,6 +146,10 @@ export class FakeVault {
 			...[...this.folders].filter((f) => parent(f) === folder).map((f) => new TFolder(this, f)),
 			...[...this.files.keys()].filter((p) => parent(p) === folder).map((p) => new TFile(this, p)),
 		];
+	}
+
+	getMarkdownFiles(): TFile[] {
+		return [...this.files.keys()].filter((p) => p.endsWith('.md')).map((p) => new TFile(this, p));
 	}
 
 	getFileByPath(path: string): TFile | null {
@@ -186,6 +202,8 @@ export function createApp(vault: FakeVault) {
 	return {
 		vault,
 		fileManager: {
+			// Where Obsidian puts new notes: the vault root here.
+			getNewFileParent: () => ({ path: '/' }),
 			async processFrontMatter(file: TFile, fn: (fm: Record<string, unknown>) => void): Promise<void> {
 				const text = vault.text(file.path);
 				const m = text.match(FRONTMATTER);
@@ -204,8 +222,12 @@ export function createApp(vault: FakeVault) {
 		metadataCache: {
 			// Obsidian keeps every note's parsed properties in memory.
 			getFileCache: (file: TFile) => {
-				const m = vault.text(file.path).match(FRONTMATTER);
-				return m ? { frontmatter: YAML.parse(m[1] ?? '') as unknown } : {};
+				const text = vault.files.get(file.path);
+				if (typeof text !== 'string') return null;
+				const m = text.match(FRONTMATTER);
+				const body = m ? text.slice(m[0].length) : text;
+				const tags = [...body.matchAll(/(?:^|\s)(#[\w/-]+)/g)].map((t) => ({ tag: t[1] ?? '' }));
+				return { frontmatter: m ? (YAML.parse(m[1] ?? '') as Record<string, unknown>) ?? {} : undefined, tags };
 			},
 			// Shortest form, without .md, like Obsidian's default.
 			fileToLinktext: (file: TFile) => (file.path.split('/').pop() ?? file.path).replace(/\.md$/, ''),

@@ -7,7 +7,7 @@ import { defaultSettings, type ScholarAtlasSettings, ScholarAtlasSettingTab } fr
 
 export default class ScholarAtlasPlugin extends Plugin {
 	settings: ScholarAtlasSettings = defaultSettings();
-	private people!: People;
+	people!: People;
 	private busy = false;
 
 	async onload(): Promise<void> {
@@ -77,6 +77,8 @@ export default class ScholarAtlasPlugin extends Plugin {
 		const saved = (await this.loadData()) as Partial<ScholarAtlasSettings> | null;
 		this.settings = { ...defaultSettings(), ...saved };
 		this.settings.orcidChecked = { ...saved?.orcidChecked };
+		// Saved by an earlier version's graph panel, since removed.
+		delete (this.settings as unknown as Record<string, unknown>).graphFilters;
 	}
 
 	async saveSettings(): Promise<void> {

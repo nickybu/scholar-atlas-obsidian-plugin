@@ -6,8 +6,10 @@
  */
 import { type App, normalizePath, stringifyYaml, TFile, Vault } from 'obsidian';
 import { countryCode, countryName } from './countries.ts';
+import { ensureFolder } from './folders.ts';
 import { isEmpty } from './profile.ts';
-import type { ScholarAtlasSettings } from './settings.ts';
+import { peopleSelector, type ScholarAtlasSettings } from './settings.ts';
+import { baseFilter } from './selector.ts';
 import type { Frontmatter, InstitutionDetail, Profile, RawPlace, RawProfile } from './types.ts';
 
 type Kind = 'Institutions' | 'Cities' | 'Countries';
@@ -34,12 +36,12 @@ export function linkName(value: unknown): string {
 
 const isLink = (v: unknown) => typeof v === 'string' && /^\[\[.*\]\]$/.test(v.trim());
 
-function peopleBase(peopleFolder: string, views: [string, string][]): string {
+function peopleBase(peopleFilter: string, views: [string, string][]): string {
 	return [
 		'```base',
 		'filters:',
 		'  and:',
-		`    - file.inFolder(${JSON.stringify(peopleFolder)})`,
+		`    - ${JSON.stringify(peopleFilter)}`,
 		'views:',
 		...views.flatMap(([name, filter]) => [
 			'  - type: table',
@@ -278,30 +280,16 @@ export class Places {
 			return;
 		}
 		const dir = path.slice(0, path.lastIndexOf('/'));
-		await this.ensureFolder(dir);
+		await ensureFolder(this.app, dir);
 		// Properties and body in one write.
 		const front = Object.keys(props).length ? `---\n${stringifyYaml(props)}---\n` : '';
 		await vault.create(path, front + this.body(spec.kind));
 		if (typeof props.openalex === 'string') this.index().set(props.openalex, spec.path);
 	}
 
-	private async ensureFolder(dir: string): Promise<void> {
-		const parts = dir.split('/');
-		for (let i = 1; i <= parts.length; i++) {
-			const sub = parts.slice(0, i).join('/');
-			if (!this.app.vault.getFolderByPath(sub)) {
-				try {
-					await this.app.vault.createFolder(sub);
-				} catch {
-					// Created meanwhile by another update.
-				}
-			}
-		}
-	}
-
 	/** The body of a new place note: who's connected to it. */
 	private body(kind: Kind): string {
-		const people = normalizePath(this.settings.peopleFolder || 'People');
+		const people = baseFilter(peopleSelector(this.settings));
 		const views: Record<Kind, [string, string][]> = {
 			Institutions: [
 				['Here now', 'list(institutions).contains(this)'],
