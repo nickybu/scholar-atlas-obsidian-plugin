@@ -70,7 +70,7 @@ export class AddPersonModal extends Modal {
 			});
 
 		new Setting(contentEl).setName('Photo').setDesc('Optional.').setHeading();
-		const preview = contentEl.createDiv({ cls: 'scholar-atlas-photo-preview scholar-atlas-hidden' });
+		const preview = contentEl.createDiv({ cls: ['scholar-atlas-photo-preview', 'scholar-atlas-hidden'] });
 		const pickerEl = contentEl.createDiv();
 		const picker = new PhotoPicker(pickerEl, (image) => {
 			photo = image;

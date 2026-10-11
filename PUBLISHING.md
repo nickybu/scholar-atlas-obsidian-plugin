@@ -23,6 +23,9 @@ Nothing here has been published yet.
         a photo. Check the preview, **Remove photo**, and that Enter in the
         link field uses the link rather than adding the person.
   - [ ] Check a large phone photo is saved at about 512 px and under 200 KB.
+  - [ ] Type lines inside a person's papers, collaborators and card sections,
+        and in the research feed note, then run **Update all people and
+        refresh locations**. Nothing you typed should disappear.
   - [ ] Turn off Wi-Fi and run **Update all people**: it should stop within
         a few seconds with a clear message.
   - [ ] Run **Update all people** twice: the second run should take a

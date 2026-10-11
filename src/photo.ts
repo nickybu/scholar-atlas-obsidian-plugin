@@ -1,3 +1,5 @@
+import { sign, unsigned, userLines } from './managed.ts';
+
 /**
  * The person's photo, and the block at the top of their note that shows it
  * in their profile card. Pure functions, no Obsidian imports.
@@ -53,15 +55,23 @@ export function photoEmbed(photo: unknown, width: number): string | null {
 	return target ? `![[${target}|${width}]]` : null;
 }
 
-/** Put a marked block right after the properties, replace it, or (for null) remove it. */
+/**
+ * Put a marked block right after the properties, replace it, or (for null)
+ * remove it. Anything you wrote inside a block being replaced or removed is
+ * kept, just below where it was.
+ */
 export function setTopBlock(text: string, start: string, end: string, content: string | null): string {
-	const wrapped = content === null ? '' : `${start}\n${content}\n${end}\n`;
+	const body = content === null ? null : `${content}\n`;
+	const wrapped = body === null ? '' : `${start}\n${sign(body)}${end}\n`;
 	const i = text.indexOf(start);
 	const j = text.indexOf(end);
 	if (i !== -1 && j > i) {
+		const raw = text.slice(i + start.length + 1, j);
+		if (body !== null && unsigned(raw) === body) return text;
+		const kept = userLines(raw);
 		let after = j + end.length;
 		if (text[after] === '\n') after++;
-		return text.slice(0, i) + wrapped + text.slice(after);
+		return text.slice(0, i) + wrapped + (kept.length ? `${kept.join('\n')}\n` : '') + text.slice(after);
 	}
 	if (!wrapped) return text;
 	const at = text.match(/^---\r?\n(?:[\s\S]*?\r?\n)?---(?:\r?\n|$)/)?.[0].length ?? 0;
