@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
 	CARD, CARD_END, CARD_START, imageExtension, PHOTO_END, PHOTO_START, photoEmbed, scaledSize, setTopBlock, withCard,
 } from '../src/photo.ts';
+import { sign } from '../src/managed.ts';
 
 const setPhotoBlock = (text: string, embed: string | null) => setTopBlock(text, PHOTO_START, PHOTO_END, embed);
 
@@ -28,13 +29,14 @@ test('photo embeds accept wikilinks, paths and URLs', () => {
 
 test('a top block goes right after the properties', () => {
 	const note = '---\nphoto: x\n---\n## Notes\n';
-	assert.equal(setPhotoBlock(note, '![[x|200]]'), `---\nphoto: x\n---\n${PHOTO_START}\n![[x|200]]\n${PHOTO_END}\n## Notes\n`);
-	assert.equal(setPhotoBlock('## Notes\n', '![[x|200]]'), `${PHOTO_START}\n![[x|200]]\n${PHOTO_END}\n## Notes\n`);
+	const block = (x: string) => `${PHOTO_START}\n${sign(`${x}\n`)}${PHOTO_END}\n`;
+	assert.equal(setPhotoBlock(note, '![[x|200]]'), `---\nphoto: x\n---\n${block('![[x|200]]')}## Notes\n`);
+	assert.equal(setPhotoBlock('## Notes\n', '![[x|200]]'), `${block('![[x|200]]')}## Notes\n`);
 });
 
 test('a top block is replaced in place, or removed', () => {
 	const note = `---\na: 1\n---\n${PHOTO_START}\n![[old|200]]\n${PHOTO_END}\n## Notes\n`;
-	assert.equal(setPhotoBlock(note, '![[new|200]]'), `---\na: 1\n---\n${PHOTO_START}\n![[new|200]]\n${PHOTO_END}\n## Notes\n`);
+	assert.equal(setPhotoBlock(note, '![[new|200]]'), `---\na: 1\n---\n${PHOTO_START}\n${sign('![[new|200]]\n')}${PHOTO_END}\n## Notes\n`);
 	assert.equal(setPhotoBlock(note, null), '---\na: 1\n---\n## Notes\n');
 	assert.equal(setPhotoBlock('---\na: 1\n---\n## Notes\n', null), '---\na: 1\n---\n## Notes\n');
 });
@@ -48,7 +50,7 @@ test('photos are scaled to fit, keeping their shape', () => {
 
 test('a note gets a card at the top, replacing an old photo block', () => {
 	const old = `---\na: 1\n---\n${PHOTO_START}\n![[x|200]]\n${PHOTO_END}\n## Notes\n`;
-	const carded = `---\na: 1\n---\n${CARD_START}\n${CARD}\n${CARD_END}\n## Notes\n`;
+	const carded = `---\na: 1\n---\n${CARD_START}\n${sign(`${CARD}\n`)}${CARD_END}\n## Notes\n`;
 	assert.equal(withCard(old), carded);
 	assert.equal(withCard(carded), carded);
 });

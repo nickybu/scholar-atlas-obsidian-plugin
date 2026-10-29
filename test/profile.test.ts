@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-	matchOpenAlex, matchOrcid, orcidJobs, orcidLinks, orcidWorks, previousPlaces, profileChanges, rawProfile, unique,
+	matchOpenAlex, matchOrcid, orcidCity, orcidJobs, orcidLinks, orcidWorks, previousPlaces, profileChanges, rawProfile, stripAccents, unique,
 } from '../src/profile.ts';
 import type { Author, OrcidJob, OrcidRecord } from '../src/types.ts';
 
@@ -143,4 +143,22 @@ test('a raw profile takes city and country from the current ORCID job, else leav
 	const noJob = rawProfile(author, {});
 	assert.deepEqual(noJob.institutions, [{ name: 'Open Uni', id: 'I9', type: 'education', countryCode: 'NO' }]);
 	assert.equal(noJob.city, undefined);
+});
+
+test('an ORCID address whose city is really a state or province code gives no city', () => {
+	assert.equal(orcidCity({ city: 'Toronto', region: 'ON' }), 'Toronto');
+	assert.equal(orcidCity({ city: 'ON', region: 'ON' }), undefined);
+	assert.equal(orcidCity({ city: 'CA', region: 'California' }), undefined);
+	assert.equal(orcidCity({ city: 'Bergen', region: null }), 'Bergen');
+	assert.equal(orcidCity(null), undefined);
+	// Then the person's city is left to their institution's own location.
+	const job: OrcidJob = { organization: { name: 'Example University', address: { city: 'ON', region: 'ON', country: 'CA' } }, 'start-date': date('2020') };
+	const raw = rawProfile({}, record([job]));
+	assert.equal(raw.city, undefined);
+	assert.equal(raw.countryCode, 'CA');
+});
+
+test('accents are stripped for searching and comparing names', () => {
+	assert.equal(stripAccents('Jorge F. Mejías'), 'Jorge F. Mejias');
+	assert.equal(stripAccents('Agüera'), 'Aguera');
 });

@@ -4,7 +4,7 @@
  * Pure functions, no Obsidian imports.
  */
 import { countryName } from './countries.ts';
-import { lastPart } from './profile.ts';
+import { lastPart, stripAccents } from './profile.ts';
 import type { WorkDetail } from './types.ts';
 
 export const CONNECTIONS_START = '<!-- collaborators:start -->';
@@ -33,7 +33,7 @@ const UMBRELLAS = new Set([
  * don't matter.
  */
 export function nameKey(name: string): string {
-	return name.normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase()
+	return stripAccents(name).toLowerCase()
 		.replace(/[^a-z0-9\s-]/g, ' ').split(/[\s-]+/).filter(Boolean).sort().join(' ');
 }
 

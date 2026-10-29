@@ -156,14 +156,14 @@ test('add person with an event and a photo', async () => {
 	const fay = props('People/Fay New.md');
 	assert.deepEqual(fay.events, ['[[Example Conference 2026]]']);
 	assert.equal(fay.photo, '[[Fay New.png]]');
-	assert.ok(vault.files.has('attachments/Fay New.png'));
+	assert.ok(vault.files.has('Photos/Fay New.png')); // the photos folder setting's default
 	assert.ok(vault.text('People/Fay New.md').includes(`---\n${CARD_START}\n${CARD}\n`)); // the card shows the photo
 });
 
 test('adding someone who exists opens their note instead', async () => {
 	const before = snapshot();
 	const result = await people().add({ name: 'Ada Example', orcid: ORCIDS.ben, openalex: '', event: '', photo: null });
-	assert.match(result, /already in your people folder/);
+	assert.match(result, /already has a note; opened it/);
 	assert.deepEqual(snapshot(), before);
 });
 
@@ -348,16 +348,49 @@ test('clicking a collaborator with no note creates and fills it', async () => {
 	const p = people();
 	await p.updateAll(false, () => {});
 	const pia = await vault.create('People/Pia Leader.md', '');
-	assert.ok(await p.isPendingCreation(pia as unknown as TFile));
-	assert.match(await p.created(pia as unknown as TFile) ?? '', /^Pia Leader:/);
+	const id = await p.pendingCreation(pia as unknown as TFile);
+	assert.equal(id, 'A300');
+	assert.match(await p.created(pia as unknown as TFile, id!), /^Pia Leader:/);
 	const props_ = named('People/Pia Leader.md');
 	assert.deepEqual([props_.openalex, props_.institutions, props_.city], ['A300', ['Pharma AG'], 'Zug']);
 	assert.match(vault.text('People/Pia Leader.md'), /- \[\[Ada Example\]\] · 2 papers %%A100%%/);
 
 	// Any other new empty note is left alone.
 	const other = await vault.create('People/Someone Else.md', '');
-	assert.equal(await p.isPendingCreation(other as unknown as TFile), false);
-	assert.equal(await p.created(other as unknown as TFile), null);
+	assert.equal(await p.pendingCreation(other as unknown as TFile), undefined);
+});
+
+test('an empty person note is started from the template when updated by itself', async () => {
+	const p = people();
+	await p.updateAll(false, () => {});
+	// Clicked while another update was running, say: the note stayed empty. Update this person recovers it.
+	const pia = await vault.create('People/Pia Leader.md', '');
+	assert.match(await p.updateOne(pia as unknown as TFile), /^Pia Leader: /);
+	assert.equal(named('People/Pia Leader.md').openalex, 'A300');
+	assert.deepEqual(named('People/Pia Leader.md').institutions, ['Pharma AG']);
+	// A note nobody links to gets the template and OpenAlex matches by name; its own text stays below the properties.
+	const dee = await vault.create('People/Dee Doe.md', 'We met in Lakeside.\n');
+	assert.match(await p.updateOne(dee as unknown as TFile), /no ID; 1 OpenAlex matches suggested/);
+	const text = vault.text('People/Dee Doe.md');
+	assert.match(text, /^---\n[\s\S]*openalex:[\s\S]*---\n/);
+	assert.ok(text.includes('We met in Lakeside.'));
+	assert.match(text, /Which OpenAlex author is this\?/);
+	// Updating everyone leaves a note with text but no properties alone.
+	const free = await vault.create('People/Free Text.md', 'Just a note.\n');
+	await p.updateAll(false, () => {});
+	assert.equal(vault.text('People/Free Text.md'), 'Just a note.\n');
+	void free;
+});
+
+test('collaborators link to people added since the last run, by their note name', async () => {
+	const p = people();
+	await p.updateAll(false, () => {});
+	// Pia is added with a note name OpenAlex doesn't use.
+	await p.add({ name: 'Pia M. Leader', orcid: '', openalex: 'A300', event: '', photo: null });
+	await p.updateOne(vault.getFileByPath('People/Ada Example.md') as unknown as TFile);
+	assert.match(vault.text('People/Ada Example.md'), /- \[\[Pia M\. Leader\]\] · 2 papers %%A300%%/);
+	// (The lab link written before Pia had a note stays: it's a filled property now.)
+	assert.doesNotMatch(vault.text('People/Ada Example.md'), /^- \[\[People\/Pia Leader/m);
 });
 
 test('clicking a company or country with no note creates and fills it', async () => {
@@ -365,7 +398,7 @@ test('clicking a company or country with no note creates and fills it', async ()
 	await p.updateAll(false, () => {});
 	vault.files.delete('Places/Institutions/Pharma AG.md');
 	const pharma = await vault.create('Places/Institutions/Pharma AG.md', '');
-	await p.created(pharma as unknown as TFile);
+	await p.created(pharma as unknown as TFile, 'I4');
 	const company = named('Places/Institutions/Pharma AG.md');
 	assert.deepEqual([company.type, company.city, company.country, company.openalex], ['company', 'Zug', 'Switzerland', 'I4']);
 	assert.ok(vault.files.has('Places/Cities/Zug.md'));
@@ -401,4 +434,144 @@ test('institutions converted from text still get their details', async () => {
 	const uni = named('Places/Institutions/Example University.md');
 	assert.deepEqual([uni.openalex, uni.type, uni.city], ['I1', 'education', 'Lakeside']);
 	assert.deepEqual(props('Places/Cities/Lakeside.md').location, [47.5, 7.6]);
+});
+
+test('photos go in the chosen folder, numbered if the name is taken; empty follows attachment settings', async () => {
+	const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47]).buffer;
+	const ada = vault.getFileByPath('People/Ada Example.md') as unknown as TFile;
+	settings.photosFolder = 'People/Photos';
+	await people().setPhoto(ada, { data: png, ext: 'png' });
+	await people().setPhoto(ada, { data: png, ext: 'png' });
+	assert.ok(vault.files.has('People/Photos/Ada Example.png'));
+	assert.ok(vault.files.has('People/Photos/Ada Example 1.png'));
+	assert.equal(props('People/Ada Example.md').photo, '[[Ada Example 1.png]]');
+
+	settings.photosFolder = '';
+	await people().setPhoto(ada, { data: png, ext: 'png' });
+	assert.ok(vault.files.has('attachments/Ada Example.png'));
+});
+
+// --- choosing people and events by folder and/or tags -------------------------
+
+test('people can be chosen by tag, wherever their notes are', async () => {
+	settings.peopleFolder = '';
+	settings.peopleTags = '#person';
+	// Ada is tagged and lives elsewhere; Ben is in People but untagged; Cy has a nested tag.
+	await vault.createFolder('Lab');
+	await vault.create('Lab/Ada Tagged.md', VAULT['People/Ada Example.md']!.replace('---\nphoto:', '---\ntags:\n  - person\nphoto:'));
+	await vault.process(vault.getFileByPath('People/Cy Orcidonly.md')!, (t) => t.replace('---\nphoto:', '---\ntags: person/pi\nphoto:'));
+	const p = people();
+	assert.deepEqual(p.list().map((f) => f.basename), ['Ada Tagged', 'Cy Orcidonly']);
+	assert.match(await p.updateAll(false, () => {}), /^Updated 2 people/);
+
+	// New people go where Obsidian puts new notes (the vault root here), tagged so they count.
+	await p.add({ name: 'Fay New', orcid: '', openalex: '', event: '', photo: null });
+	assert.deepEqual(props('Fay New.md').tags, ['person']);
+	assert.ok(p.list().some((f) => f.path === 'Fay New.md'));
+	// Collaborators without notes link to where they'd be created.
+	assert.match(vault.text('Lab/Ada Tagged.md'), /- \[\[Pia Leader\|Pia Leader\]\] · 2 papers %%A300%%/);
+	// Place notes list people by tag too.
+	assert.match(vault.text('Places/Institutions/Example University.md'), /- "file\.hasTag\(\\"person\\"\)"/);
+});
+
+test('with a folder and tags, people can be required to have both', async () => {
+	settings.peopleTags = 'person';
+	await vault.process(vault.getFileByPath('People/Ada Example.md')!, (t) => t.replace('---\nphoto:', '---\ntags: person\nphoto:'));
+	settings.peopleMatch = 'any';
+	assert.equal(people().list().length, 5); // everyone in People
+	settings.peopleMatch = 'all';
+	assert.deepEqual(people().list().map((f) => f.basename), ['Ada Example']);
+});
+
+test('events can be chosen by tag for Met at', async () => {
+	settings.eventsFolder = '';
+	settings.eventsTags = 'conference';
+	await vault.createFolder('Diary');
+	await vault.create('Diary/Summer School.md', '---\ntags: [conference]\n---\n');
+	assert.deepEqual(people().events().map((f) => f.basename), ['Summer School']);
+});
+
+// --- nothing you write is ever removed -----------------------------------------
+
+/** Every non-blank line you wrote must still be in the note. */
+function assertKept(path: string, lines: string[]): void {
+	const text = vault.text(path);
+	for (const l of lines) assert.ok(text.includes(l), `lost from ${path}: ${JSON.stringify(l)}\n---\n${text}`);
+}
+
+/** OpenAlex reports one more work for Ada, so her papers and collaborators are fetched and rewritten. */
+const moreWorks = (url: string) => {
+	const r = scholarlyApis(url) as { status: number; json?: { results?: { id?: string; works_count?: number }[] } };
+	if (!r.json?.results) return r;
+	return { ...r, json: { ...r.json, results: r.json.results.map((a) => (a.id?.endsWith('/A100') ? { ...a, works_count: 3 } : a)) } };
+};
+
+test('lines you write inside the plugin\'s sections survive a rewrite', async () => {
+	await people().updateAll(false, () => {});
+	const mine = ['My thoughts on her recent work', 'Ask her about the two-photon rig', 'Card note: met in the hallway'];
+	await vault.process(vault.getFileByPath('People/Ada Example.md')!, (t) => t
+		.replace('<!-- papers:end -->', `${mine[0]}\n<!-- papers:end -->`)
+		.replace('<!-- collaborators:end -->', `${mine[1]}\n<!-- collaborators:end -->`)
+		.replace('<!-- card:end -->', `${mine[2]}\n<!-- card:end -->`));
+	setNetwork(moreWorks);
+	await people().updateAll(false, () => {});
+	assertKept('People/Ada Example.md', mine);
+	assert.match(vault.text('People/Ada Example.md'), /· 3 works in total/); // and the sections were still updated
+	// They now sit outside the markers, so later updates leave them alone.
+	setNetwork(moreWorks);
+	await people().updateAll(true, () => {});
+	assertKept('People/Ada Example.md', mine);
+	assert.equal(vault.text('People/Ada Example.md').split(mine[0] ?? '').length, 2, 'kept once, not duplicated');
+});
+
+test('a paper line you correct is kept, not overwritten', async () => {
+	await people().updateAll(false, () => {});
+	const corrected = '- 2019-05-01 · [An older result (corrected title)](https://openalex.org/W2)';
+	await vault.process(vault.getFileByPath('People/Ada Example.md')!, (t) => t.replace(/^- 2019-05-01 · \[An older result\]\(https:\/\/openalex\.org\/W2\)$/m, corrected));
+	setNetwork(moreWorks);
+	await people().updateAll(false, () => {});
+	assertKept('People/Ada Example.md', [corrected]);
+});
+
+test('anything you add to the research feed note is kept', async () => {
+	const p = people();
+	await p.updateAll(false, () => {});
+	await vault.process(vault.getFileByPath('Feeds/Research.md')!, (t) => `# My reading list\n${t}\nRead these by Friday.\n`);
+	setNetwork(moreWorks);
+	await p.updateAll(true, () => {});
+	assertKept('Feeds/Research.md', ['# My reading list', 'Read these by Friday.']);
+});
+
+test('a feed note from an earlier version keeps your properties and lines', async () => {
+	await vault.createFolder('Feeds');
+	await vault.create('Feeds/Research.md', [
+		'---', 'tags: reading', '---',
+		'Papers from the last 90 days by people in the network. Generated by the Scholar Atlas plugin; edits here are overwritten.',
+		'', '- 2026-01-01 · [[Someone]] · [Old paper](https://doi.org/1)', 'My comment on the feed', '',
+	].join('\n'));
+	await people().updateAll(false, () => {});
+	const text = vault.text('Feeds/Research.md');
+	assert.ok(text.startsWith('---\ntags: reading\n---\n<!-- feed:start -->'));
+	assertKept('Feeds/Research.md', ['My comment on the feed']);
+	assert.ok(!text.includes('Old paper'), 'the old generated list itself is replaced');
+});
+
+test('methods and model systems you add are never removed', async () => {
+	await people().updateAll(false, () => {});
+	await vault.process(vault.getFileByPath('People/Ada Example.md')!, (t) => t.replace(/^methods:\n/m, 'methods:\n  - Patch-seq\n'));
+	setNetwork(moreWorks);
+	await people().updateAll(false, () => {});
+	const methods = props('People/Ada Example.md').methods as string[];
+	assert.ok(methods.includes('Patch-seq'));
+	assert.ok(methods.length > 1, 'found ones are still added');
+});
+
+test('refreshing locations moves your institutions to previous ones instead of dropping them', async () => {
+	await people().updateAll(false, () => {});
+	await vault.process(vault.getFileByPath('People/Ada Example.md')!, (t) => t.replace(/^institutions:\n/m, 'institutions:\n  - My Visiting Lab\n'));
+	await people().updateAll(true, () => {});
+	const ada = named('People/Ada Example.md');
+	assert.deepEqual(ada.institutions, ['Example University']);
+	assert.ok((ada.previous_institutions as string[]).includes('My Visiting Lab'));
+	assert.ok((ada.previous_institutions as string[]).includes('Old Institute'));
 });

@@ -8,7 +8,7 @@ import { VOCAB, type VocabTag } from './vocab.ts';
 const DASHES = /[‐‑‒–—−]/g;
 
 /** Lowercase, unify dashes and collapse whitespace, as the vocabulary expects. */
-export function normalise(text: string): string {
+function normalise(text: string): string {
 	return text.toLowerCase().replace(DASHES, '-').replace(/\s+/g, ' ').trim();
 }
 

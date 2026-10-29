@@ -1,7 +1,7 @@
 /** Lookups against the OpenAlex and ORCID public APIs. */
 import { requestUrl } from 'obsidian';
 import type { Author, Candidate, InstitutionDetail, Institution, OrcidRecord, Work, WorkDetail } from './types.ts';
-import { lastPart, matchOrcid, unique } from './profile.ts';
+import { lastPart, matchOrcid, stripAccents, unique } from './profile.ts';
 
 const OPENALEX_API = 'https://api.openalex.org';
 const ORCID_API = 'https://pub.orcid.org/v3.0';
@@ -11,7 +11,7 @@ const AUTHOR_FIELDS = 'id,display_name,works_count,orcid,last_known_institutions
  * papers setting); the rest feed collaborators, their PI and research tags,
  * all from this one request.
  */
-export const WORKS_WINDOW = 50;
+const WORKS_WINDOW = 50;
 /** OpenAlex accepts at most 100 values in one `a|b|c` filter. */
 const BATCH_SIZE = 100;
 /** Waits between attempts: two retries, then the service counts as unreachable. */
@@ -253,9 +253,9 @@ export class Sources {
 		};
 	}
 
-	/** The three closest OpenAlex authors by name, those at `institution` first. */
-	async candidates(name: string, institution: string): Promise<Candidate[]> {
-		const plain = name.normalize('NFKD').replace(/[̀-ͯ]/g, '');
+	/** The `limit` closest OpenAlex authors by name, those at `institution` first. */
+	async candidates(name: string, institution: string, limit = 3): Promise<Candidate[]> {
+		const plain = stripAccents(name);
 		const d = await this.openalex<{ results?: Candidate[] }>('authors', {
 			search: plain,
 			per_page: 10,
@@ -268,7 +268,7 @@ export class Sources {
 				.some((i) => (i.display_name ?? '').toLowerCase().includes(inst));
 			results.sort((a, b) => Number(hit(b)) - Number(hit(a)));
 		}
-		return results.slice(0, 3);
+		return results.slice(0, limit);
 	}
 }
 
@@ -297,7 +297,7 @@ interface OpenAlexInstitution {
 }
 
 /** OpenAlex stores abstracts as word -> positions; put the words back in order. */
-export function abstractText(index: Record<string, number[]> | null | undefined): string {
+function abstractText(index: Record<string, number[]> | null | undefined): string {
 	if (!index) return '';
 	const words: string[] = [];
 	for (const [word, positions] of Object.entries(index)) for (const p of positions) words[p] = word;

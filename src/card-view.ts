@@ -10,6 +10,8 @@ export class ProfileCard extends MarkdownRenderChild {
 	private readonly app: App;
 	private readonly sourcePath: string;
 	private readonly photoWidth: () => number;
+	/** Which draw is the latest; earlier ones still rendering stop, so quick edits don't leave two cards. */
+	private drawn = 0;
 
 	constructor(app: App, containerEl: HTMLElement, sourcePath: string, photoWidth: () => number) {
 		super(containerEl);
@@ -26,12 +28,15 @@ export class ProfileCard extends MarkdownRenderChild {
 	}
 
 	private async draw(): Promise<void> {
+		const n = ++this.drawn;
 		const file = this.app.vault.getAbstractFileByPath(this.sourcePath);
 		const fm = (file instanceof TFile ? this.app.metadataCache.getFileCache(file)?.frontmatter : undefined) ?? {};
 		const { photo, details } = cardMarkdown(fm, this.photoWidth());
-		this.containerEl.empty();
-		const card = this.containerEl.createDiv({ cls: 'scholar-atlas-card' });
+		const card = createDiv({ cls: 'scholar-atlas-card' });
 		if (photo) await MarkdownRenderer.render(this.app, photo, card.createDiv({ cls: 'scholar-atlas-card-photo' }), this.sourcePath, this);
 		await MarkdownRenderer.render(this.app, details, card.createDiv({ cls: 'scholar-atlas-card-details' }), this.sourcePath, this);
+		if (n !== this.drawn) return;
+		this.containerEl.empty();
+		this.containerEl.appendChild(card);
 	}
 }

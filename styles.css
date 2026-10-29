@@ -50,3 +50,18 @@
 .scholar-atlas-card-details p {
 	margin: 0 0 var(--size-2-2);
 }
+
+.scholar-atlas-matches {
+	margin: 0 0 var(--size-4-2);
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+}
+
+.scholar-atlas-matches-title {
+	padding: var(--size-2-2) 0;
+}
+
+.scholar-atlas-matches .setting-item {
+	padding: var(--size-2-2) 0;
+	border-top: none;
+}

@@ -10,7 +10,7 @@ const ORCID_RE = /\d{4}-\d{4}-\d{4}-\d{3}[\dX]/i;
 const OPENALEX_RE = /\bA\d+\b/;
 
 /** Properties that describe where someone is now; written as a pair. */
-export const LOCATION = ['city', 'country'] as const;
+const LOCATION = ['city', 'country'] as const;
 /** List properties that refreshing locations overwrites. */
 export const INSTITUTIONS = ['institutions', 'previous_institutions'] as const;
 
@@ -35,6 +35,11 @@ export function matchOrcid(s: unknown): string {
 
 export function matchOpenAlex(s: unknown): string {
 	return (typeof s === 'string' ? s : '').match(OPENALEX_RE)?.[0] ?? '';
+}
+
+/** "Mejías" -> "Mejias": the same name however it's accented, for searching and comparing. */
+export function stripAccents(s: string): string {
+	return s.normalize('NFKD').replace(/[̀-ͯ]/g, '');
 }
 
 /** Drop empty names and case-insensitive duplicates, keeping the first spelling. */
@@ -78,7 +83,7 @@ export function orcidJobs(record: OrcidRecord): OrcidJob[] {
 	return jobs.sort((a, b) => compareKeys(dateKey(b['start-date']), dateKey(a['start-date'])));
 }
 
-export function isCurrentJob(job: OrcidJob): boolean {
+function isCurrentJob(job: OrcidJob): boolean {
 	return !job['end-date'];
 }
 
@@ -89,16 +94,29 @@ export function affiliations(author: Author): Affiliation[] {
 }
 
 /** OpenAlex's view of where someone works now: last known institutions, else the newest affiliation. */
-export function openAlexCurrent(author: Author): Institution[] {
+function openAlexCurrent(author: Author): Institution[] {
 	if (author.last_known_institutions?.length) return author.last_known_institutions;
 	return affiliations(author).slice(0, 1).flatMap((a) => (a.institution ? [a.institution] : []));
+}
+
+/**
+ * The city of an ORCID address, if it names one. Addresses are typed by the
+ * person, and some put the state or province in the city field ("ON", "CA"):
+ * then the institution's own location is used instead.
+ */
+export function orcidCity(address: { city?: string | null; region?: string | null } | null | undefined): string | undefined {
+	const city = address?.city?.trim();
+	if (!city) return undefined;
+	const region = address?.region?.trim().toLowerCase();
+	if (city.toLowerCase() === region || /^[A-Z]{2,3}$/.test(city)) return undefined;
+	return city;
 }
 
 function fromJob(job: OrcidJob): RawPlace | null {
 	const name = job.organization?.name;
 	if (!name) return null;
 	const addr = job.organization?.address;
-	return { name, city: addr?.city ?? undefined, countryCode: addr?.country ?? undefined };
+	return { name, city: orcidCity(addr), countryCode: addr?.country ?? undefined };
 }
 
 function fromInstitution(inst: Institution): RawPlace | null {
@@ -227,7 +245,38 @@ export function profileChanges(fm: Frontmatter, found: Profile, refresh: boolean
 	return changes;
 }
 
-/** Drop keys whose value is empty, so only real findings are written. */
-export function compact(found: Profile): Profile {
-	return Object.fromEntries(Object.entries(found).filter(([, v]) => !isEmpty(v)));
+const asList = (v: unknown): unknown[] => (Array.isArray(v) ? v : v == null || v === '' ? [] : [v]);
+
+/** What a place value shows: the alias or name of a link, else the text; lowercased, for comparing. */
+function placeKey(v: unknown): string {
+	if (typeof v !== 'string') return '';
+	const m = v.match(/^\[\[([^\]|]+)(?:\|([^\]]*))?\]\]$/);
+	return (m ? (m[2] ?? m[1]?.split('/').pop() ?? '') : v).trim().toLowerCase();
+}
+
+/** A list with new values added, keeping every existing one (case-insensitively deduplicated). */
+export function addToList(existing: unknown, add: string[]): unknown[] {
+	const out = asList(existing).filter((v) => v !== null && v !== '');
+	const seen = new Set(out.map(placeKey));
+	for (const v of add) {
+		if (!seen.has(placeKey(v))) {
+			seen.add(placeKey(v));
+			out.push(v);
+		}
+	}
+	return out;
+}
+
+/**
+ * When refreshing replaces someone's institutions, nothing is lost: places
+ * that are no longer current, and every previous one, stay in
+ * `previous_institutions`.
+ */
+export function keepOldPlaces(fm: Frontmatter, changes: Profile): Profile {
+	if (!changes.institutions && !changes.previous_institutions) return changes;
+	const current = changes.institutions ?? asList(fm.institutions).filter((v): v is string => typeof v === 'string');
+	const isCurrent = new Set(current.map(placeKey));
+	const previous = [...(changes.previous_institutions ?? []), ...asList(fm.institutions), ...asList(fm.previous_institutions)]
+		.filter((v): v is string => typeof v === 'string' && !!v.trim() && !isCurrent.has(placeKey(v)));
+	return { ...changes, previous_institutions: addToList([], previous) as string[] };
 }

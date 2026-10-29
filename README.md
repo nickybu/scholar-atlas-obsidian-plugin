@@ -34,8 +34,9 @@ who you met at a conference, who moved where.
 - **Research feed**: one note with everyone's recent papers (the last 90 days
   by default). A paper by several people you know is listed once, with all
   of them.
-- **No ID? No problem**: the note lists the closest OpenAlex matches by name
-  for you to pick from.
+- **No ID? No problem**: as you type a name in **Add person**, the closest
+  OpenAlex matches appear for you to pick from. If you add someone without
+  picking, their note lists the matches instead.
 - **Your edits are safe**: only empty properties are filled. Anything you
   typed stays.
 
@@ -44,21 +45,27 @@ who you met at a conference, who moved where.
 1. Install and enable **Scholar Atlas** in **Settings → Community plugins**.
 2. Run **Scholar Atlas: Add person** from the command palette, or select the
    person icon in the ribbon.
-3. Enter their name. Optionally also give:
-   - their ORCID or OpenAlex ID (the IDs or the full orcid.org /
+3. Enter their name. After a short pause, the closest OpenAlex authors by
+   that name are listed under it, with their institutions and number of
+   works. If one is them, select **Use** and their OpenAlex ID (and ORCID,
+   if OpenAlex knows it) is filled in. Optionally also give:
+   - their ORCID or OpenAlex ID yourself (the IDs or the full orcid.org /
      openalex.org links both work);
    - **Met at**: an event note, suggested from your events folder;
    - a **photo**, in any of the ways described in [Photos](#photos).
 
 The note is created in your people folder (`People/` by default) and opened.
+If you choose people by tag instead (see [Which notes are people](#which-notes-are-people)),
+it goes where Obsidian puts new notes and gets your people tag.
 Add anything else the plugin can't know by hand.
 
 ### When there's no ID
 
-Leave both IDs blank. The note's papers section lists the three closest
-OpenAlex authors by name. If the note's `institutions` property is filled in,
-matches from that institution come first. Paste the right ID into the
-`openalex` property and run **Update this person**.
+If none of the matches in the dialog is the person, or you're not sure yet,
+add them with both IDs blank. The note's papers section then lists the three
+closest OpenAlex authors by name. If the note's `institutions` property is
+filled in, matches from that institution come first. Paste the right ID into
+the `openalex` property and run **Update this person**.
 
 If none of them is the person:
 
@@ -78,13 +85,15 @@ the papers section says so.
 | Command | What it does |
 |---|---|
 | Add person | Create a person note from your template, with where you met and a photo if given, fill it in and open it |
-| Update this person | Look the open person up again from scratch. Only available in your people folder |
+| Update this person | Look the open person up again from scratch. Only offered on person notes. An empty note, or one without properties, is started from your template first |
 | Set photo | Add or replace the open person's photo (see [Photos](#photos)) |
 | Update all people | Bring everyone's papers up to date and fill any empty properties, skipping what can't have changed |
 | Update all people and refresh locations | Look everyone up again from scratch, and overwrite city, country and both institution lists, for when people move |
 
 Every command except **Set photo** also rebuilds the research feed. A notice
-shows progress, and only one update runs at a time.
+shows progress, and only one update runs at a time: a command run while
+another is updating is refused with a notice, and a collaborator clicked
+while one is updating is looked up as soon as it finishes.
 
 ### Built for big, growing vaults
 
@@ -99,7 +108,6 @@ shows progress, and only one update runs at a time.
     records every** setting changes this.
   - People still waiting for you to pick an OpenAlex ID aren't searched
     again.
-
   - People marked `only_update_papers` are never looked up on ORCID.
 
   So a repeat run over 1,000 people takes a few seconds and about a dozen
@@ -130,7 +138,7 @@ them all. If you use your own template, include the ones you want filled.
 | `orcid` | You, or the person's OpenAlex profile |
 | `openalex` | You, or looked up from their ORCID. `none` means they're not on OpenAlex |
 | `institutions` | Where they work now: ORCID jobs with no end date, else OpenAlex's last known institutions, else the institution on their newest paper |
-| `city`, `country` | The same source as `institutions`, so they agree |
+| `city`, `country` | The same source as `institutions`, so they agree. If the ORCID address gives a state or province where the city should be ("ON", "CA"), the institution's own location is used instead |
 | `previous_institutions` | Ended ORCID jobs and other institutions on their papers, most recent first |
 | `website`, `linkedin`, `email` | Links and public email on their ORCID record. Social profiles such as Bluesky, X and GitHub are skipped |
 | `photo` | You, with **Set photo** or **Add person**. Never looked up automatically |
@@ -153,9 +161,10 @@ Papers are written between two markers in the note:
 ```
 
 The markers and the papers heading are added to the end of the note if
-missing. Everything between them is regenerated on every update, so write
-your own notes outside them. The same goes for the collaborators section
-(`<!-- collaborators:start -->` / `<!-- collaborators:end -->`).
+missing. The collaborators section (`<!-- collaborators:start -->` /
+`<!-- collaborators:end -->`) works the same way. The plugin updates what's
+between the markers, but never removes anything you write there: see
+[Your writing is never removed](#your-writing-is-never-removed).
 
 ### Places
 
@@ -200,7 +209,9 @@ Everyone and everything is a link:
 - Co-authors with a note link to it.
 - Anyone else links to a note in your people folder that doesn't exist yet.
   **Click it and the note is created and filled in**, just like **Add
-  person**.
+  person**. If an update is running at the time, the note is filled in as
+  soon as it finishes. Should a note ever be left empty, open it and run
+  **Update this person**: it gets the template and is looked up.
 - Institutions, companies and countries work the same way with place notes.
 
 **Their likely PI** is the person who's most often last author on their
@@ -216,10 +227,10 @@ whenever their papers are fetched again.
 `model_systems` (e.g. "Mouse", "Zebrafish") come from the titles, abstracts
 and MeSH terms of their latest papers. They use a vocabulary of 108 terms
 from [neuro-labs-explorer](https://github.com/nickybu/neuro-labs-explorer).
-A term needs at least two papers, or one if they have fewer than three; up
-to 8 of each are kept, most frequent first. These two properties are kept
-in step with their papers, so edits to them are overwritten. Put your own
-tags in another property.
+A term needs at least two papers, or one if they have fewer than three, and
+each update adds up to 8 of each, most frequent first. Terms are only ever
+added: ones you typed, or that were found before, are never removed, so you
+can add your own freely.
 
 ### Photos
 
@@ -239,8 +250,10 @@ photo width, if that's bigger) and saved as JPEG, so a phone photo adds tens
 of kilobytes to your vault rather than megabytes. GIFs, SVGs and images that
 are already small are kept as they are.
 
-The image is saved as an attachment, following your **Files and links**
-settings, as `<person's name>.<ext>`. `photo` is set to a link to it, and the
+The image is saved in your photos folder (`Photos` by default) as
+`<person's name>.<ext>`, numbered if that name is taken. If you clear the
+**Photos folder** setting, photos follow Obsidian's **Files and links**
+attachment settings instead. `photo` is set to a link to the image, and the
 photo appears on their [profile card](#profile-card).
 
 You can also paste a link like `[[Ada.jpg]]` or an image URL into `photo`
@@ -277,14 +290,39 @@ One exception: for someone who's on ORCID but not OpenAlex, their papers come
 from their ORCID record, so that's still fetched (at most every few days) for
 their papers alone.
 
-### What gets overwritten
+### Your writing is never removed
 
-- Properties are only filled when empty.
-- City and country are filled as a pair, only when both are empty. A city
-  you typed is never mixed with a looked-up country.
-- **Update all people and refresh locations** is the exception. It overwrites
-  city, country, `institutions` and `previous_institutions`. It never blanks
-  a property it found nothing for.
+Scholar Atlas never deletes anything you write, in any note.
+
+- **Your own text** outside the plugin's sections is never touched.
+- **Inside the plugin's sections** (papers, collaborators, profile card, and
+  the research feed's list), each section carries a hidden signature: a
+  short fingerprint of every line the plugin wrote, in an Obsidian comment
+  (`%%sa:…%%`). When a section is updated, lines that still match are
+  replaced. Lines you added, or plugin lines you edited (say, a corrected
+  title), are moved to just below the section and kept for good. Sections
+  written by earlier versions have no signature, so any line that isn't
+  exactly in the plugin's format is kept the same way.
+- **Research feed note:** only its marked list is updated. Anything you add
+  above or below it, including properties, stays.
+- **Properties** are only filled when empty. City and country are filled as
+  a pair, only when both are empty, so a city you typed is never mixed with
+  a looked-up country.
+- **`methods` and `model_systems`** are only ever added to.
+- **Notes it creates** (people, places) are only filled in while empty;
+  after that, only their empty properties are filled.
+
+The one deliberate exception is **Update all people and refresh locations**,
+for when someone moves:
+- It replaces `city` and `country`.
+- It updates `institutions`, but institutions that are no longer current,
+  including ones you typed, move to `previous_institutions` rather than
+  disappearing.
+- It never blanks a property it found nothing for.
+
+Obsidian itself drops comments (`# …`) inside the properties block whenever
+a plugin updates properties. Keep notes about a person in the body of their
+note rather than as comments among the properties.
 
 ### Good to know
 
@@ -300,10 +338,15 @@ their papers alone.
 
 | Setting | Default | |
 |---|---|---|
-| People folder | `People` | Where person notes live. Notes in subfolders count too |
+| People folder | `People` | Person notes: notes in this folder and its subfolders. New people are created here |
+| People tags | — | Person notes: notes with any of these tags, e.g. `person, scientist` |
+| With both a folder and tags | In the folder, or tagged | Or: in the folder, and tagged |
 | Person template | `Templates/Person.md` | Used by **Add person**. If it doesn't exist, the built-in template is used |
-| Events folder | `Events` | Notes suggested in **Add person**'s *Met at* field |
+| Events folder | `Events` | Event notes, suggested in **Add person**'s *Met at* field |
+| Event tags | — | Event notes: notes with any of these tags |
+| With both a folder and tags (events) | In the folder, or tagged | Or: in the folder, and tagged |
 | Places folder | `Places` | Institution, city and country notes go in its `Institutions`, `Cities` and `Countries` subfolders |
+| Photos folder | `Photos` | Where people's photos are saved. Empty: follow Obsidian's attachment settings |
 | Research feed note | `Research feed.md` | Rebuilt after every update |
 | Papers per person | 10 | |
 | Research feed window | 90 days | |
@@ -311,6 +354,33 @@ their papers alone.
 | Check ORCID records every | 7 days | How often **Update all people** looks at each ORCID record. 0 checks every time |
 | Contact email | — | Optional. Sent to OpenAlex with each request, which gets faster, more reliable service |
 | API key | — | Optional OpenAlex API key, kept in Obsidian's keychain (see below) |
+
+### Which notes are people
+
+People (and events) can be chosen by folder, by tags, or both:
+
+- **Folder only** (the default, `People`): every note in the folder and its
+  subfolders.
+- **Tags only**: clear the folder and set tags such as `person`. Any note
+  with one of those tags counts, wherever it is. Nested tags count too, so
+  `#person/pi` matches `person`.
+- **Both**: choose whether a note needs to be in the folder *or* tagged, or
+  in the folder *and* tagged. The second picks out some notes in a shared
+  folder.
+
+The tags fields suggest your vault's tags as you type. Under each section,
+**Matching notes** shows how many notes are selected right now, with a few
+of their names, so you can see the effect of a change straight away (it
+updates a moment after you stop typing).
+
+New people (from **Add person** or by clicking a collaborator) go in the
+people folder, or where Obsidian puts new notes if there's none. They're
+given the first people tag, so they count as people however you've set it
+up.
+
+Place notes created from now on list people using the same rule. Place notes
+created earlier keep the rule from when they were made, which is a `base`
+block you can edit.
 
 ### Your API key stays on your device
 
@@ -322,8 +392,9 @@ Until you do, that device works without a key.
 ## Privacy and network use
 
 Scholar Atlas only contacts the network when you run one of its commands,
-or click a collaborator, institution or country that doesn't have a note
-yet (to fill the new note in). There's no telemetry or analytics, and
+type a name in the **Add person** dialog (to list matches), or click a
+collaborator, institution or country that doesn't have a note yet (to fill
+the new note in). There's no telemetry or analytics, and
 nothing is sent in the background, and nothing is written without a
 command. Profile cards are drawn from properties already in your vault.
 
@@ -331,7 +402,7 @@ It talks to two free, public scholarly APIs:
 
 | Service | What is sent |
 |---|---|
-| [OpenAlex](https://openalex.org) ([privacy policy](https://openalex.org/OpenAlex_privacy_policy.pdf)) | ORCID and OpenAlex IDs from your notes, and institution IDs. For people with no ID, the note's name (the person's name), to search for matches. Your contact email and API key, if you set them |
+| [OpenAlex](https://openalex.org) ([privacy policy](https://openalex.org/OpenAlex_privacy_policy.pdf)) | ORCID and OpenAlex IDs from your notes, and institution IDs. The name typed in **Add person**, and the note name of people with no ID, to search for matches. Your contact email and API key, if you set them |
 | [ORCID public API](https://pub.orcid.org) ([privacy policy](https://info.orcid.org/privacy-policy/)) | ORCID IDs from your notes |
 
 When you give a photo by its address, that one address is downloaded.
@@ -343,11 +414,12 @@ content is sent anywhere.
 - **Reads:** notes in your people, events and places folders, your person
   template, and the research feed note.
 - **Writes:**
-  - the properties above, and the papers, collaborators and photo sections,
-    in person notes;
+  - the properties above, and the papers, collaborators and card sections,
+    in person notes (a person note without properties gets the template's
+    when you run **Update this person** on it);
   - new person notes from **Add person** or clicking a collaborator;
   - place notes in your places folder;
-  - photos you add, as attachments;
+  - photos you add, in your photos folder;
   - the research feed note.
 - **Nothing outside your vault** is read or written.
 
@@ -373,10 +445,10 @@ Source is in `src/`:
 | `people.ts` | Reading and writing person notes and the feed, and click-to-create |
 | `places.ts` | Institution, city and country notes |
 | `sources.ts` | OpenAlex and ORCID requests |
-| `profile.ts`, `papers.ts`, `photo.ts`, `card.ts`, `connections.ts`, `tagging.ts`, `countries.ts` | Pure logic and markdown rendering |
+| `profile.ts`, `papers.ts`, `photo.ts`, `card.ts`, `connections.ts`, `selector.ts`, `tagging.ts`, `countries.ts` | Pure logic and markdown rendering |
 | `vocab.ts` | Methods and model-systems vocabulary, generated from neuro-labs-explorer by `scripts/generate-vocab.py` |
 | `shrink-photo.ts` | Scaling photos down before saving |
-| `settings.ts`, `add-person-modal.ts`, `set-photo-modal.ts`, `photo-picker.ts`, `card-view.ts` | UI (styles in `styles.css`) |
+| `settings.ts`, `add-person-modal.ts`, `set-photo-modal.ts`, `photo-picker.ts`, `card-view.ts`, `tag-suggest.ts` | UI (styles in `styles.css`) |
 
 Tests are in `test/`:
 - **Unit tests** cover the pure modules.

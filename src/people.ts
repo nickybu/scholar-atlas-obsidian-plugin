@@ -3,21 +3,24 @@
  * collaborators, creating new ones (also by clicking a collaborator's name),
  * saving photos, and rebuilding the research feed.
  */
-import { type App, getFrontMatterInfo, normalizePath, parseYaml, TFile, TFolder, Vault } from 'obsidian';
-import type { ScholarAtlasSettings } from './settings.ts';
+import { type App, getAllTags, getFrontMatterInfo, normalizePath, parseYaml, TFile, Vault } from 'obsidian';
+import { eventsSelector, peopleSelector, type ScholarAtlasSettings } from './settings.ts';
+import { matches, type NoteSelector } from './selector.ts';
 import { NetworkError, RequestError, type SourceOptions, Sources } from './sources.ts';
 import {
-	affiliations, isEmpty, lastPart, matchOpenAlex, matchOrcid, orcidWorks, profileChanges, rawProfile,
+	addToList, affiliations, isEmpty, keepOldPlaces, lastPart, matchOpenAlex, matchOrcid, orcidWorks, profileChanges, rawProfile,
 } from './profile.ts';
 import {
-	blockPapers, END, getBlock, getSection, isCandidateList, NOT_ON_OPENALEX, renderCandidates, renderFeed, renderWorks,
+	blockPapers, END, feedWithSection, getBlock, getSection, isCandidateList, NOT_ON_OPENALEX, renderCandidates, renderFeed, renderWorks,
 	setBlock, setSection, START, unknownAuthor, worksSummary,
 } from './papers.ts';
 import {
 	type Collaborator, CONNECTIONS_END, CONNECTIONS_START, type ConnectionLinks, connections, pendingTargets,
 	renderConnections,
 } from './connections.ts';
-import { Places, safeName } from './places.ts';
+import { linkAlias, Places, safeName } from './places.ts';
+import { frontmatterLength } from './managed.ts';
+import { availablePath, ensureFolder } from './folders.ts';
 import { researchTags } from './tagging.ts';
 import { withCard } from './photo.ts';
 import type { PhotoImage } from './photo-picker.ts';
@@ -67,7 +70,7 @@ interface UpdateMode {
 }
 
 /** Checkbox property: only keep this person's papers up to date when updating everyone. */
-export const PAPERS_ONLY = 'only_update_papers';
+const PAPERS_ONLY = 'only_update_papers';
 
 function papersOnly(fm: Frontmatter): boolean {
 	const v = fm[PAPERS_ONLY];
@@ -131,8 +134,23 @@ export class People {
 		this.places = new Places(app, settings);
 	}
 
-	private get folder(): string {
-		return normalizePath(this.settings.peopleFolder || 'People');
+	/** Where new people are created: the people folder, else where Obsidian puts new notes. */
+	private get newPeopleFolder(): string {
+		const folder = normalizePath(this.settings.peopleFolder.trim());
+		if (folder && folder !== '/') return folder;
+		const parent = this.app.fileManager.getNewFileParent('').path;
+		return parent === '/' ? '' : parent;
+	}
+
+	private tagsOf(file: TFile): string[] {
+		const cache = this.app.metadataCache.getFileCache(file);
+		return cache ? getAllTags(cache) ?? [] : [];
+	}
+
+	/** Notes matching a selector: just the folder's when that's enough, else a scan of the vault's notes. */
+	private select(sel: NoteSelector): TFile[] {
+		const files = sel.folder && (!sel.tags.length || sel.match === 'all') ? this.notesIn(sel.folder) : this.app.vault.getMarkdownFiles();
+		return files.filter((f) => matches(sel, f.path, this.tagsOf(f)));
 	}
 
 	sources(): Sources {
@@ -144,13 +162,14 @@ export class People {
 		});
 	}
 
+	/** Whether a note is a person: in the people folder and/or tagged as set in the settings. */
 	isPerson(file: TFile): boolean {
-		return file.extension === 'md' && file.path.startsWith(this.folder + '/');
+		return file.extension === 'md' && matches(peopleSelector(this.settings), file.path, this.tagsOf(file));
 	}
 
-	/** Every note in the people folder and its subfolders, by name. */
+	/** Every person note, by name. */
 	list(): TFile[] {
-		return this.notesIn(this.folder).sort((a, b) => a.basename.localeCompare(b.basename));
+		return this.select(peopleSelector(this.settings)).sort((a, b) => a.basename.localeCompare(b.basename));
 	}
 
 	/** Person notes by OpenAlex ID, from the properties Obsidian keeps in memory. */
@@ -169,7 +188,8 @@ export class People {
 	private personLink(c: Collaborator, sourcePath: string): string {
 		const file = this.peopleById().get(c.id);
 		if (file) return `[[${this.app.metadataCache.fileToLinktext(file, sourcePath)}]]`;
-		return `[[${this.folder}/${safeName(c.name)}|${c.name}]]`;
+		const folder = this.newPeopleFolder;
+		return `[[${folder ? `${folder}/` : ''}${safeName(c.name)}|${linkAlias(c.name)}]]`;
 	}
 
 	private connectionLinks(sourcePath: string): ConnectionLinks {
@@ -182,8 +202,18 @@ export class People {
 
 	/** Event notes for the "Met at" suggestions, most recently changed first. */
 	events(): TFile[] {
-		return this.notesIn(normalizePath(this.settings.eventsFolder || 'Events'))
-			.sort((a, b) => b.stat.mtime - a.stat.mtime);
+		return this.select(eventsSelector(this.settings)).sort((a, b) => b.stat.mtime - a.stat.mtime);
+	}
+
+	/** Give a new person note the first people tag, so it counts as a person when people are chosen by tag. */
+	private async tagAsPerson(file: TFile): Promise<void> {
+		const tag = peopleSelector(this.settings).tags[0];
+		if (!tag || this.isPerson(file)) return;
+		await this.app.fileManager.processFrontMatter(file, (fm: Frontmatter) => {
+			const tags: unknown[] = Array.isArray(fm.tags) ? fm.tags : typeof fm.tags === 'string' && fm.tags ? [fm.tags] : [];
+			if (!tags.includes(tag)) tags.push(tag);
+			fm.tags = tags;
+		});
 	}
 
 	private notesIn(folder: string): TFile[] {
@@ -199,15 +229,15 @@ export class People {
 	/** Create a person note from the template, fill it in and open it. */
 	async add({ name, orcid, openalex, event, photo }: NewPerson): Promise<string> {
 		const { vault, workspace, fileManager, metadataCache } = this.app;
-		const path = normalizePath(`${this.folder}/${name}.md`);
-		const existing = vault.getFileByPath(path);
+		const folder = this.newPeopleFolder;
+		const path = normalizePath(`${folder ? `${folder}/` : ''}${name}.md`);
+		const existing = vault.getFileByPath(path) ?? this.list().find((f) => f.basename.toLowerCase() === name.toLowerCase());
 		if (existing) {
 			await workspace.getLeaf(false).openFile(existing);
-			return `${name} is already in your people folder; opened their note.`;
+			return `${name} already has a note; opened it.`;
 		}
-		if (!(vault.getAbstractFileByPath(this.folder) instanceof TFolder)) await vault.createFolder(this.folder);
-		const template = vault.getFileByPath(normalizePath(this.settings.templateFile));
-		const file = await vault.create(path, template ? await vault.read(template) : DEFAULT_TEMPLATE);
+		if (folder) await ensureFolder(this.app, folder);
+		const file = await vault.create(path, await this.template());
 		event = event.replace(/^\[\[|\]\]$/g, '').trim();
 		if (orcid || openalex || event) {
 			const eventFile = event ? this.events().find((f) => f.basename.toLowerCase() === event.toLowerCase()) : null;
@@ -222,13 +252,43 @@ export class People {
 				}
 			});
 		}
+		await this.tagAsPerson(file);
 		if (photo) await this.setPhoto(file, photo);
 		await workspace.getLeaf(false).openFile(file);
 		return this.updateOne(file);
 	}
 
+	/** The person template's text: your template note, else the built-in one. */
+	private async template(): Promise<string> {
+		const file = this.app.vault.getFileByPath(normalizePath(this.settings.templateFile));
+		return file ? this.app.vault.cachedRead(file) : DEFAULT_TEMPLATE;
+	}
+
+	/**
+	 * Start a note from the template. An empty note gets all of it; a note with
+	 * text but no properties gets the template's properties above its text,
+	 * so nothing written is lost. If a collaborators block links to this note
+	 * with an OpenAlex ID, that's filled in too.
+	 */
+	private async seed(file: TFile, id?: string): Promise<void> {
+		const template = await this.template();
+		await this.app.vault.process(file, (t) => {
+			if (!t.trim()) return template;
+			return getFrontMatterInfo(t).exists ? t : template.slice(0, frontmatterLength(template)) + t;
+		});
+		if (id && /^A\d+$/.test(id)) {
+			await this.app.fileManager.processFrontMatter(file, (fm: Frontmatter) => {
+				if (isEmpty(fm.openalex)) fm.openalex = id;
+			});
+		}
+		await this.tagAsPerson(file);
+	}
+
 	/** Update one person, looking everything up again. */
 	async updateOne(file: TFile): Promise<string> {
+		// Notes may have been added or created since the last run: index them afresh (cheap, from Obsidian's cache).
+		this.byId = null;
+		this.places.reset();
 		const status = await this.update(file, { refresh: false, full: true, single: true }, this.sources());
 		await this.deps.save?.();
 		await this.writeFeed();
@@ -313,9 +373,16 @@ export class People {
 	async update(file: TFile, mode: UpdateMode, src: Sources, seen?: Set<string>): Promise<string> {
 		const { vault, fileManager } = this.app;
 		const name = file.basename;
-		const text = await vault.read(file);
-		const fm = frontmatterOf(text);
-		if (!fm) return `${name}: no properties, skipped.`;
+		let text = await vault.cachedRead(file);
+		let fm = frontmatterOf(text);
+		if (!fm) {
+			// An empty note (say, a collaborator clicked while another update was running) is started
+			// from the template. A note with text but no properties is only started when asked for by itself.
+			if (text.trim() && !mode.single) return `${name}: no properties, skipped.`;
+			await this.seed(file, await this.pendingCreation(file));
+			text = await vault.cachedRead(file);
+			fm = frontmatterOf(text) ?? {};
+		}
 		const existing = getBlock(text);
 		const existingConnections = getSection(text, CONNECTIONS_START, CONNECTIONS_END);
 		// Places typed as plain text become links to place notes.
@@ -406,17 +473,18 @@ export class People {
 		// Place notes for the links about to be written, and the city and country notes they link to.
 		const written: unknown[] = [...Object.values(linked.changes as Record<string, unknown>), ...Object.values(fills as Record<string, unknown>)];
 		await this.places.ensureLinked(written, new Map([...specs, ...linked.specs]));
+		// Research tags are only ever added to: tags you wrote, or that were found before, are never removed.
 		const derivedChanged = Object.entries(derived)
-			.some(([k, v]) => (k === 'lab' ? isEmpty(fm.lab) : JSON.stringify(fm[k] ?? []) !== JSON.stringify(v)));
+			.some(([k, v]) => (k === 'lab' ? isEmpty(fm.lab) : JSON.stringify(addToList(fm[k], v as string[])) !== JSON.stringify(addToList(fm[k], []))));
 		if (resolvedId || filled.length || Object.keys(linked.changes).length || derivedChanged) {
 			await fileManager.processFrontMatter(file, (front: Frontmatter) => {
 				// Decide against the note as it is now: it may have been edited during the lookups.
 				if (resolvedId && isEmpty(front.openalex)) front.openalex = resolvedId;
 				for (const [k, v] of Object.entries(linked.changes)) if (JSON.stringify(front[k]) === JSON.stringify(fm[k])) front[k] = v;
-				for (const [k, v] of Object.entries(profileChanges(front, found, mode.refresh))) front[k] = v;
-				// Derived from their papers, so kept in step with them.
-				if (derived.methods) front.methods = derived.methods;
-				if (derived.model_systems) front.model_systems = derived.model_systems;
+				const changes = keepOldPlaces(front, profileChanges(front, found, mode.refresh));
+				for (const [k, v] of Object.entries(changes)) front[k] = v;
+				if (derived.methods) front.methods = addToList(front.methods, derived.methods as string[]);
+				if (derived.model_systems) front.model_systems = addToList(front.model_systems, derived.model_systems as string[]);
 				if (derived.lab && isEmpty(front.lab)) front.lab = derived.lab;
 			});
 		}
@@ -426,8 +494,12 @@ export class People {
 				: setSection(withPapers, CONNECTIONS_START, CONNECTIONS_END, 'Collaborators', connectionsBlock);
 			return withCard(withConnections);
 		};
-		const latest = await vault.read(file);
-		if (write(latest) !== latest) await vault.process(file, write);
+		const latest = await vault.cachedRead(file);
+		if (write(latest) !== latest) {
+			await vault.process(file, write);
+			// Obsidian updates the note's modification time a moment later; don't let the feed see a stale scan.
+			this.scans.delete(file.path);
+		}
 		return `${name}: ${status.join('; ')}.`;
 	}
 
@@ -448,8 +520,11 @@ export class People {
 		const { vault, fileManager, metadataCache } = this.app;
 		// Twice the display width keeps it sharp on high-resolution screens.
 		const small = await shrinkPhoto(image, Math.max(512, 2 * this.settings.photoWidth));
-		// Follows the vault's attachment settings, creates the folder, and never overwrites.
-		const path = await fileManager.getAvailablePathForAttachment(`${file.basename}.${small.ext}`, file.path);
+		// In the photos folder if one is set, else where Obsidian's attachment settings say; never overwrites.
+		const folder = this.settings.photosFolder.trim();
+		const path = folder
+			? await availablePath(this.app, folder, safeName(file.basename), small.ext)
+			: await fileManager.getAvailablePathForAttachment(`${file.basename}.${small.ext}`, file.path);
 		const saved = await vault.createBinary(path, small.data);
 		const link = `[[${metadataCache.fileToLinktext(saved, file.path)}]]`;
 		await fileManager.processFrontMatter(file, (fm: Frontmatter) => {
@@ -475,37 +550,26 @@ export class People {
 		return scan;
 	}
 
-	/** Whether a new, empty note is one a collaborators block links to. */
-	async isPendingCreation(file: TFile): Promise<boolean> {
-		return (await this.pendingId(file)) !== undefined;
-	}
-
-	private async pendingId(file: TFile): Promise<string | undefined> {
+	/**
+	 * The hidden ID on the collaborators line that links to this note, if any:
+	 * an OpenAlex author or institution ID, or a country code. Set when a note
+	 * was just created by clicking such a link.
+	 */
+	async pendingCreation(file: TFile): Promise<string | undefined> {
+		if (file.extension !== 'md') return undefined;
 		const target = file.path.replace(/\.md$/, '');
-		for (const person of this.list()) {
-			if (person.path === file.path) continue;
-			const id = (await this.scan(person)).pending.get(target);
-			if (id) return id;
-		}
-		return undefined;
+		const scans = await Promise.all(this.list().filter((p) => p.path !== file.path).map((p) => this.scan(p)));
+		return scans.map((s) => s.pending.get(target)).find(Boolean);
 	}
 
 	/**
-	 * A note was just created. If it's an empty note that a collaborators
-	 * block links to (someone clicked the link), fill it in: a person gets the
-	 * template and their OpenAlex ID and is looked up; an institution or
-	 * country gets its details. Returns a status, or null if it's not ours.
+	 * Fill in a note someone created by clicking a link in a collaborators
+	 * block: a person gets the template and their OpenAlex ID and is looked
+	 * up; an institution or country gets its details.
 	 */
-	async created(file: TFile): Promise<string | null> {
-		if (file.extension !== 'md' || (await this.app.vault.read(file)).trim()) return null;
-		const id = await this.pendingId(file);
-		if (!id) return null;
-		if (this.isPerson(file)) {
-			const template = this.app.vault.getFileByPath(normalizePath(this.settings.templateFile));
-			const content = template ? await this.app.vault.read(template) : DEFAULT_TEMPLATE;
-			await this.app.vault.process(file, (t) => (t.trim() ? t : content));
-			await this.app.fileManager.processFrontMatter(file, (fm: Frontmatter) => { fm.openalex = id; });
-			this.byId = null;
+	async created(file: TFile, id: string): Promise<string> {
+		if (/^A\d+$/.test(id)) { // an OpenAlex author: a person
+			await this.seed(file, id);
 			return this.updateOne(file);
 		}
 		const detail = /^I\d+$/.test(id) ? (await this.sources().institutions([id])).get(id) : undefined;
@@ -530,11 +594,13 @@ export class People {
 		const known = feed && this.feedWritten?.path === path && this.feedWritten.mtime === feed.stat.mtime;
 		if (known && this.feedWritten?.content === content) return items.length;
 		if (feed) {
-			if (known || (await vault.cachedRead(feed)) !== content) await vault.process(feed, () => content);
+			// Only the marked list is rewritten; anything else in the note is kept.
+			const current = await vault.cachedRead(feed);
+			if (feedWithSection(current, content) !== current) await vault.process(feed, (t) => feedWithSection(t, content));
 		} else {
 			const dir = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '';
 			if (dir && !vault.getFolderByPath(dir)) await vault.createFolder(dir);
-			feed = await vault.create(path, content);
+			feed = await vault.create(path, feedWithSection('', content));
 		}
 		this.feedWritten = { path, mtime: (vault.getFileByPath(path) ?? feed).stat.mtime, content };
 		return items.length;
