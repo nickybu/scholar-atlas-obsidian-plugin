@@ -1,4 +1,4 @@
-import { sign, unsigned, userLines } from './managed.ts';
+import { frontmatterLength, sign, unsigned, userLines } from './managed.ts';
 
 /**
  * The person's photo, and the block at the top of their note that shows it
@@ -74,7 +74,7 @@ export function setTopBlock(text: string, start: string, end: string, content: s
 		return text.slice(0, i) + wrapped + (kept.length ? `${kept.join('\n')}\n` : '') + text.slice(after);
 	}
 	if (!wrapped) return text;
-	const at = text.match(/^---\r?\n(?:[\s\S]*?\r?\n)?---(?:\r?\n|$)/)?.[0].length ?? 0;
+	const at = frontmatterLength(text);
 	return text.slice(0, at) + wrapped + text.slice(at);
 }
 

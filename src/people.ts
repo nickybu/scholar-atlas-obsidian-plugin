@@ -18,7 +18,8 @@ import {
 	type Collaborator, CONNECTIONS_END, CONNECTIONS_START, type ConnectionLinks, connections, pendingTargets,
 	renderConnections,
 } from './connections.ts';
-import { Places, safeName } from './places.ts';
+import { linkAlias, Places, safeName } from './places.ts';
+import { frontmatterLength } from './managed.ts';
 import { availablePath, ensureFolder } from './folders.ts';
 import { researchTags } from './tagging.ts';
 import { withCard } from './photo.ts';
@@ -69,7 +70,7 @@ interface UpdateMode {
 }
 
 /** Checkbox property: only keep this person's papers up to date when updating everyone. */
-export const PAPERS_ONLY = 'only_update_papers';
+const PAPERS_ONLY = 'only_update_papers';
 
 function papersOnly(fm: Frontmatter): boolean {
 	const v = fm[PAPERS_ONLY];
@@ -188,7 +189,7 @@ export class People {
 		const file = this.peopleById().get(c.id);
 		if (file) return `[[${this.app.metadataCache.fileToLinktext(file, sourcePath)}]]`;
 		const folder = this.newPeopleFolder;
-		return `[[${folder ? `${folder}/` : ''}${safeName(c.name)}|${c.name}]]`;
+		return `[[${folder ? `${folder}/` : ''}${safeName(c.name)}|${linkAlias(c.name)}]]`;
 	}
 
 	private connectionLinks(sourcePath: string): ConnectionLinks {
@@ -236,8 +237,7 @@ export class People {
 			return `${name} already has a note; opened it.`;
 		}
 		if (folder) await ensureFolder(this.app, folder);
-		const template = vault.getFileByPath(normalizePath(this.settings.templateFile));
-		const file = await vault.create(path, template ? await vault.read(template) : DEFAULT_TEMPLATE);
+		const file = await vault.create(path, await this.template());
 		event = event.replace(/^\[\[|\]\]$/g, '').trim();
 		if (orcid || openalex || event) {
 			const eventFile = event ? this.events().find((f) => f.basename.toLowerCase() === event.toLowerCase()) : null;
@@ -258,8 +258,37 @@ export class People {
 		return this.updateOne(file);
 	}
 
+	/** The person template's text: your template note, else the built-in one. */
+	private async template(): Promise<string> {
+		const file = this.app.vault.getFileByPath(normalizePath(this.settings.templateFile));
+		return file ? this.app.vault.cachedRead(file) : DEFAULT_TEMPLATE;
+	}
+
+	/**
+	 * Start a note from the template. An empty note gets all of it; a note with
+	 * text but no properties gets the template's properties above its text,
+	 * so nothing written is lost. If a collaborators block links to this note
+	 * with an OpenAlex ID, that's filled in too.
+	 */
+	private async seed(file: TFile, id?: string): Promise<void> {
+		const template = await this.template();
+		await this.app.vault.process(file, (t) => {
+			if (!t.trim()) return template;
+			return getFrontMatterInfo(t).exists ? t : template.slice(0, frontmatterLength(template)) + t;
+		});
+		if (id && /^A\d+$/.test(id)) {
+			await this.app.fileManager.processFrontMatter(file, (fm: Frontmatter) => {
+				if (isEmpty(fm.openalex)) fm.openalex = id;
+			});
+		}
+		await this.tagAsPerson(file);
+	}
+
 	/** Update one person, looking everything up again. */
 	async updateOne(file: TFile): Promise<string> {
+		// Notes may have been added or created since the last run: index them afresh (cheap, from Obsidian's cache).
+		this.byId = null;
+		this.places.reset();
 		const status = await this.update(file, { refresh: false, full: true, single: true }, this.sources());
 		await this.deps.save?.();
 		await this.writeFeed();
@@ -344,9 +373,16 @@ export class People {
 	async update(file: TFile, mode: UpdateMode, src: Sources, seen?: Set<string>): Promise<string> {
 		const { vault, fileManager } = this.app;
 		const name = file.basename;
-		const text = await vault.read(file);
-		const fm = frontmatterOf(text);
-		if (!fm) return `${name}: no properties, skipped.`;
+		let text = await vault.cachedRead(file);
+		let fm = frontmatterOf(text);
+		if (!fm) {
+			// An empty note (say, a collaborator clicked while another update was running) is started
+			// from the template. A note with text but no properties is only started when asked for by itself.
+			if (text.trim() && !mode.single) return `${name}: no properties, skipped.`;
+			await this.seed(file, await this.pendingCreation(file));
+			text = await vault.cachedRead(file);
+			fm = frontmatterOf(text) ?? {};
+		}
 		const existing = getBlock(text);
 		const existingConnections = getSection(text, CONNECTIONS_START, CONNECTIONS_END);
 		// Places typed as plain text become links to place notes.
@@ -439,7 +475,7 @@ export class People {
 		await this.places.ensureLinked(written, new Map([...specs, ...linked.specs]));
 		// Research tags are only ever added to: tags you wrote, or that were found before, are never removed.
 		const derivedChanged = Object.entries(derived)
-			.some(([k, v]) => (k === 'lab' ? isEmpty(fm.lab) : JSON.stringify(addToList(fm[k], v as string[])) !== JSON.stringify(fm[k] ?? [])));
+			.some(([k, v]) => (k === 'lab' ? isEmpty(fm.lab) : JSON.stringify(addToList(fm[k], v as string[])) !== JSON.stringify(addToList(fm[k], []))));
 		if (resolvedId || filled.length || Object.keys(linked.changes).length || derivedChanged) {
 			await fileManager.processFrontMatter(file, (front: Frontmatter) => {
 				// Decide against the note as it is now: it may have been edited during the lookups.
@@ -458,8 +494,12 @@ export class People {
 				: setSection(withPapers, CONNECTIONS_START, CONNECTIONS_END, 'Collaborators', connectionsBlock);
 			return withCard(withConnections);
 		};
-		const latest = await vault.read(file);
-		if (write(latest) !== latest) await vault.process(file, write);
+		const latest = await vault.cachedRead(file);
+		if (write(latest) !== latest) {
+			await vault.process(file, write);
+			// Obsidian updates the note's modification time a moment later; don't let the feed see a stale scan.
+			this.scans.delete(file.path);
+		}
 		return `${name}: ${status.join('; ')}.`;
 	}
 
@@ -510,38 +550,26 @@ export class People {
 		return scan;
 	}
 
-	/** Whether a new, empty note is one a collaborators block links to. */
-	async isPendingCreation(file: TFile): Promise<boolean> {
-		return (await this.pendingId(file)) !== undefined;
-	}
-
-	private async pendingId(file: TFile): Promise<string | undefined> {
+	/**
+	 * The hidden ID on the collaborators line that links to this note, if any:
+	 * an OpenAlex author or institution ID, or a country code. Set when a note
+	 * was just created by clicking such a link.
+	 */
+	async pendingCreation(file: TFile): Promise<string | undefined> {
+		if (file.extension !== 'md') return undefined;
 		const target = file.path.replace(/\.md$/, '');
-		for (const person of this.list()) {
-			if (person.path === file.path) continue;
-			const id = (await this.scan(person)).pending.get(target);
-			if (id) return id;
-		}
-		return undefined;
+		const scans = await Promise.all(this.list().filter((p) => p.path !== file.path).map((p) => this.scan(p)));
+		return scans.map((s) => s.pending.get(target)).find(Boolean);
 	}
 
 	/**
-	 * A note was just created. If it's an empty note that a collaborators
-	 * block links to (someone clicked the link), fill it in: a person gets the
-	 * template and their OpenAlex ID and is looked up; an institution or
-	 * country gets its details. Returns a status, or null if it's not ours.
+	 * Fill in a note someone created by clicking a link in a collaborators
+	 * block: a person gets the template and their OpenAlex ID and is looked
+	 * up; an institution or country gets its details.
 	 */
-	async created(file: TFile): Promise<string | null> {
-		if (file.extension !== 'md' || (await this.app.vault.read(file)).trim()) return null;
-		const id = await this.pendingId(file);
-		if (!id) return null;
+	async created(file: TFile, id: string): Promise<string> {
 		if (/^A\d+$/.test(id)) { // an OpenAlex author: a person
-			const template = this.app.vault.getFileByPath(normalizePath(this.settings.templateFile));
-			const content = template ? await this.app.vault.read(template) : DEFAULT_TEMPLATE;
-			await this.app.vault.process(file, (t) => (t.trim() ? t : content));
-			await this.app.fileManager.processFrontMatter(file, (fm: Frontmatter) => { fm.openalex = id; });
-			await this.tagAsPerson(file);
-			this.byId = null;
+			await this.seed(file, id);
 			return this.updateOne(file);
 		}
 		const detail = /^I\d+$/.test(id) ? (await this.sources().institutions([id])).get(id) : undefined;

@@ -17,8 +17,13 @@
 /** A hidden Obsidian comment: `%%sa:<fingerprint> <fingerprint>…%%`. */
 const SIGNATURE = /^%%sa:([0-9a-z ]*)%%$/;
 
+/** Length of the properties block at the start of a note, 0 if there is none; blocks go right after it. */
+export function frontmatterLength(text: string): number {
+	return text.match(/^---\r?\n(?:[\s\S]*?\r?\n)?---(?:\r?\n|$)/)?.[0].length ?? 0;
+}
+
 /** FNV-1a, as a short base-36 string: enough to tell a line from an edited one. */
-export function lineHash(line: string): string {
+function lineHash(line: string): string {
 	let h = 0x811c9dc5;
 	for (let i = 0; i < line.length; i++) {
 		h ^= line.charCodeAt(i);

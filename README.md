@@ -34,8 +34,9 @@ who you met at a conference, who moved where.
 - **Research feed**: one note with everyone's recent papers (the last 90 days
   by default). A paper by several people you know is listed once, with all
   of them.
-- **No ID? No problem**: the note lists the closest OpenAlex matches by name
-  for you to pick from.
+- **No ID? No problem**: as you type a name in **Add person**, the closest
+  OpenAlex matches appear for you to pick from. If you add someone without
+  picking, their note lists the matches instead.
 - **Your edits are safe**: only empty properties are filled. Anything you
   typed stays.
 
@@ -44,8 +45,11 @@ who you met at a conference, who moved where.
 1. Install and enable **Scholar Atlas** in **Settings → Community plugins**.
 2. Run **Scholar Atlas: Add person** from the command palette, or select the
    person icon in the ribbon.
-3. Enter their name. Optionally also give:
-   - their ORCID or OpenAlex ID (the IDs or the full orcid.org /
+3. Enter their name. After a short pause, the closest OpenAlex authors by
+   that name are listed under it, with their institutions and number of
+   works. If one is them, select **Use** and their OpenAlex ID (and ORCID,
+   if OpenAlex knows it) is filled in. Optionally also give:
+   - their ORCID or OpenAlex ID yourself (the IDs or the full orcid.org /
      openalex.org links both work);
    - **Met at**: an event note, suggested from your events folder;
    - a **photo**, in any of the ways described in [Photos](#photos).
@@ -57,10 +61,11 @@ Add anything else the plugin can't know by hand.
 
 ### When there's no ID
 
-Leave both IDs blank. The note's papers section lists the three closest
-OpenAlex authors by name. If the note's `institutions` property is filled in,
-matches from that institution come first. Paste the right ID into the
-`openalex` property and run **Update this person**.
+If none of the matches in the dialog is the person, or you're not sure yet,
+add them with both IDs blank. The note's papers section then lists the three
+closest OpenAlex authors by name. If the note's `institutions` property is
+filled in, matches from that institution come first. Paste the right ID into
+the `openalex` property and run **Update this person**.
 
 If none of them is the person:
 
@@ -80,13 +85,15 @@ the papers section says so.
 | Command | What it does |
 |---|---|
 | Add person | Create a person note from your template, with where you met and a photo if given, fill it in and open it |
-| Update this person | Look the open person up again from scratch. Only available in your people folder |
+| Update this person | Look the open person up again from scratch. Only offered on person notes. An empty note, or one without properties, is started from your template first |
 | Set photo | Add or replace the open person's photo (see [Photos](#photos)) |
 | Update all people | Bring everyone's papers up to date and fill any empty properties, skipping what can't have changed |
 | Update all people and refresh locations | Look everyone up again from scratch, and overwrite city, country and both institution lists, for when people move |
 
 Every command except **Set photo** also rebuilds the research feed. A notice
-shows progress, and only one update runs at a time.
+shows progress, and only one update runs at a time: a command run while
+another is updating is refused with a notice, and a collaborator clicked
+while one is updating is looked up as soon as it finishes.
 
 ### Built for big, growing vaults
 
@@ -101,7 +108,6 @@ shows progress, and only one update runs at a time.
     records every** setting changes this.
   - People still waiting for you to pick an OpenAlex ID aren't searched
     again.
-
   - People marked `only_update_papers` are never looked up on ORCID.
 
   So a repeat run over 1,000 people takes a few seconds and about a dozen
@@ -132,7 +138,7 @@ them all. If you use your own template, include the ones you want filled.
 | `orcid` | You, or the person's OpenAlex profile |
 | `openalex` | You, or looked up from their ORCID. `none` means they're not on OpenAlex |
 | `institutions` | Where they work now: ORCID jobs with no end date, else OpenAlex's last known institutions, else the institution on their newest paper |
-| `city`, `country` | The same source as `institutions`, so they agree |
+| `city`, `country` | The same source as `institutions`, so they agree. If the ORCID address gives a state or province where the city should be ("ON", "CA"), the institution's own location is used instead |
 | `previous_institutions` | Ended ORCID jobs and other institutions on their papers, most recent first |
 | `website`, `linkedin`, `email` | Links and public email on their ORCID record. Social profiles such as Bluesky, X and GitHub are skipped |
 | `photo` | You, with **Set photo** or **Add person**. Never looked up automatically |
@@ -203,7 +209,9 @@ Everyone and everything is a link:
 - Co-authors with a note link to it.
 - Anyone else links to a note in your people folder that doesn't exist yet.
   **Click it and the note is created and filled in**, just like **Add
-  person**.
+  person**. If an update is running at the time, the note is filled in as
+  soon as it finishes. Should a note ever be left empty, open it and run
+  **Update this person**: it gets the template and is looked up.
 - Institutions, companies and countries work the same way with place notes.
 
 **Their likely PI** is the person who's most often last author on their
@@ -362,7 +370,8 @@ People (and events) can be chosen by folder, by tags, or both:
 
 The tags fields suggest your vault's tags as you type. Under each section,
 **Matching notes** shows how many notes are selected right now, with a few
-of their names, so you can see the effect of a change straight away.
+of their names, so you can see the effect of a change straight away (it
+updates a moment after you stop typing).
 
 New people (from **Add person** or by clicking a collaborator) go in the
 people folder, or where Obsidian puts new notes if there's none. They're
@@ -383,8 +392,9 @@ Until you do, that device works without a key.
 ## Privacy and network use
 
 Scholar Atlas only contacts the network when you run one of its commands,
-or click a collaborator, institution or country that doesn't have a note
-yet (to fill the new note in). There's no telemetry or analytics, and
+type a name in the **Add person** dialog (to list matches), or click a
+collaborator, institution or country that doesn't have a note yet (to fill
+the new note in). There's no telemetry or analytics, and
 nothing is sent in the background, and nothing is written without a
 command. Profile cards are drawn from properties already in your vault.
 
@@ -392,7 +402,7 @@ It talks to two free, public scholarly APIs:
 
 | Service | What is sent |
 |---|---|
-| [OpenAlex](https://openalex.org) ([privacy policy](https://openalex.org/OpenAlex_privacy_policy.pdf)) | ORCID and OpenAlex IDs from your notes, and institution IDs. For people with no ID, the note's name (the person's name), to search for matches. Your contact email and API key, if you set them |
+| [OpenAlex](https://openalex.org) ([privacy policy](https://openalex.org/OpenAlex_privacy_policy.pdf)) | ORCID and OpenAlex IDs from your notes, and institution IDs. The name typed in **Add person**, and the note name of people with no ID, to search for matches. Your contact email and API key, if you set them |
 | [ORCID public API](https://pub.orcid.org) ([privacy policy](https://info.orcid.org/privacy-policy/)) | ORCID IDs from your notes |
 
 When you give a photo by its address, that one address is downloaded.
@@ -404,8 +414,9 @@ content is sent anywhere.
 - **Reads:** notes in your people, events and places folders, your person
   template, and the research feed note.
 - **Writes:**
-  - the properties above, and the papers, collaborators and photo sections,
-    in person notes;
+  - the properties above, and the papers, collaborators and card sections,
+    in person notes (a person note without properties gets the template's
+    when you run **Update this person** on it);
   - new person notes from **Add person** or clicking a collaborator;
   - place notes in your places folder;
   - photos you add, in your photos folder;

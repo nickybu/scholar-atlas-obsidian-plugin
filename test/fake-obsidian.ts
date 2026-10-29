@@ -56,6 +56,11 @@ export class Notice {}
 export class MarkdownRenderChild {}
 export class MarkdownRenderer {}
 
+/** Not debounced here: the settings tab isn't tested. */
+export function debounce<T extends unknown[]>(fn: (...args: T) => void): (...args: T) => void {
+	return fn;
+}
+
 export function normalizePath(path: string): string {
 	return path.replace(/\\/g, '/').replace(/\/+/g, '/').replace(/^\/|\/$/g, '');
 }

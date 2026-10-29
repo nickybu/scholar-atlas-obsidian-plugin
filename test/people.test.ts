@@ -348,16 +348,49 @@ test('clicking a collaborator with no note creates and fills it', async () => {
 	const p = people();
 	await p.updateAll(false, () => {});
 	const pia = await vault.create('People/Pia Leader.md', '');
-	assert.ok(await p.isPendingCreation(pia as unknown as TFile));
-	assert.match(await p.created(pia as unknown as TFile) ?? '', /^Pia Leader:/);
+	const id = await p.pendingCreation(pia as unknown as TFile);
+	assert.equal(id, 'A300');
+	assert.match(await p.created(pia as unknown as TFile, id!), /^Pia Leader:/);
 	const props_ = named('People/Pia Leader.md');
 	assert.deepEqual([props_.openalex, props_.institutions, props_.city], ['A300', ['Pharma AG'], 'Zug']);
 	assert.match(vault.text('People/Pia Leader.md'), /- \[\[Ada Example\]\] · 2 papers %%A100%%/);
 
 	// Any other new empty note is left alone.
 	const other = await vault.create('People/Someone Else.md', '');
-	assert.equal(await p.isPendingCreation(other as unknown as TFile), false);
-	assert.equal(await p.created(other as unknown as TFile), null);
+	assert.equal(await p.pendingCreation(other as unknown as TFile), undefined);
+});
+
+test('an empty person note is started from the template when updated by itself', async () => {
+	const p = people();
+	await p.updateAll(false, () => {});
+	// Clicked while another update was running, say: the note stayed empty. Update this person recovers it.
+	const pia = await vault.create('People/Pia Leader.md', '');
+	assert.match(await p.updateOne(pia as unknown as TFile), /^Pia Leader: /);
+	assert.equal(named('People/Pia Leader.md').openalex, 'A300');
+	assert.deepEqual(named('People/Pia Leader.md').institutions, ['Pharma AG']);
+	// A note nobody links to gets the template and OpenAlex matches by name; its own text stays below the properties.
+	const dee = await vault.create('People/Dee Doe.md', 'We met in Lakeside.\n');
+	assert.match(await p.updateOne(dee as unknown as TFile), /no ID; 1 OpenAlex matches suggested/);
+	const text = vault.text('People/Dee Doe.md');
+	assert.match(text, /^---\n[\s\S]*openalex:[\s\S]*---\n/);
+	assert.ok(text.includes('We met in Lakeside.'));
+	assert.match(text, /Which OpenAlex author is this\?/);
+	// Updating everyone leaves a note with text but no properties alone.
+	const free = await vault.create('People/Free Text.md', 'Just a note.\n');
+	await p.updateAll(false, () => {});
+	assert.equal(vault.text('People/Free Text.md'), 'Just a note.\n');
+	void free;
+});
+
+test('collaborators link to people added since the last run, by their note name', async () => {
+	const p = people();
+	await p.updateAll(false, () => {});
+	// Pia is added with a note name OpenAlex doesn't use.
+	await p.add({ name: 'Pia M. Leader', orcid: '', openalex: 'A300', event: '', photo: null });
+	await p.updateOne(vault.getFileByPath('People/Ada Example.md') as unknown as TFile);
+	assert.match(vault.text('People/Ada Example.md'), /- \[\[Pia M\. Leader\]\] · 2 papers %%A300%%/);
+	// (The lab link written before Pia had a note stays: it's a filled property now.)
+	assert.doesNotMatch(vault.text('People/Ada Example.md'), /^- \[\[People\/Pia Leader/m);
 });
 
 test('clicking a company or country with no note creates and fills it', async () => {
@@ -365,7 +398,7 @@ test('clicking a company or country with no note creates and fills it', async ()
 	await p.updateAll(false, () => {});
 	vault.files.delete('Places/Institutions/Pharma AG.md');
 	const pharma = await vault.create('Places/Institutions/Pharma AG.md', '');
-	await p.created(pharma as unknown as TFile);
+	await p.created(pharma as unknown as TFile, 'I4');
 	const company = named('Places/Institutions/Pharma AG.md');
 	assert.deepEqual([company.type, company.city, company.country, company.openalex], ['company', 'Zug', 'Switzerland', 'I4']);
 	assert.ok(vault.files.has('Places/Cities/Zug.md'));

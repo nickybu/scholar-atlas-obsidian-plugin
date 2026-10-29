@@ -3,7 +3,7 @@
  * the research feed. Pure functions, no Obsidian imports.
  */
 import type { Candidate, Work } from './types.ts';
-import { keepAfter, sign, unsigned, userLines } from './managed.ts';
+import { frontmatterLength, keepAfter, sign, unsigned, userLines } from './managed.ts';
 import { lastPart } from './profile.ts';
 
 export const START = '<!-- papers:start -->';
@@ -59,7 +59,7 @@ export function unknownAuthor(aid: string): string {
 }
 
 /** The raw text between two markers (with its signature); null if they're missing. */
-export function rawSection(text: string, start: string, end: string): string | null {
+function rawSection(text: string, start: string, end: string): string | null {
 	const i = text.indexOf(start);
 	const j = text.indexOf(end);
 	if (i === -1 || j === -1 || j < i) return null;
@@ -122,8 +122,8 @@ export function blockPapers(text: string): [string, string][] {
 	return out;
 }
 
-export const FEED_START = '<!-- feed:start -->';
-export const FEED_END = '<!-- feed:end -->';
+const FEED_START = '<!-- feed:start -->';
+const FEED_END = '<!-- feed:end -->';
 
 /**
  * The feed note with its list replaced, keeping everything else in it. A feed
@@ -132,7 +132,7 @@ export const FEED_END = '<!-- feed:end -->';
  */
 export function feedWithSection(text: string, section: string): string {
 	if (rawSection(text, FEED_START, FEED_END) !== null) return setSection(text, FEED_START, FEED_END, 'Research feed', section);
-	const front = text.match(/^---\r?\n(?:[\s\S]*?\r?\n)?---(?:\r?\n|$)/)?.[0] ?? '';
+	const front = text.slice(0, frontmatterLength(text));
 	const kept = userLines(text.slice(front.length));
 	return `${front}${FEED_START}\n${sign(section)}${FEED_END}\n${kept.length ? `\n${kept.join('\n')}\n` : ''}`;
 }

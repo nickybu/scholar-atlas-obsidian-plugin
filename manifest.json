@@ -4,6 +4,6 @@
 	"version": "0.2.3",
 	"minAppVersion": "1.13.0",
 	"description": "Track the researchers you know, where they work and live, the institutions they've moved through, and their latest papers, filled in from OpenAlex and ORCID.",
-	"author": "YOUR NAME",
+	"author": "nickybu",
 	"isDesktopOnly": false
 }

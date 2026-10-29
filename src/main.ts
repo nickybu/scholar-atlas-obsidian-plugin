@@ -8,7 +8,8 @@ import { defaultSettings, type ScholarAtlasSettings, ScholarAtlasSettingTab } fr
 export default class ScholarAtlasPlugin extends Plugin {
 	settings: ScholarAtlasSettings = defaultSettings();
 	people!: People;
-	private busy = false;
+	/** The job running now, if any. Only one runs at a time. */
+	private current: Promise<void> | null = null;
 
 	async onload(): Promise<void> {
 		await this.loadSettings();
@@ -73,12 +74,13 @@ export default class ScholarAtlasPlugin extends Plugin {
 		});
 	}
 
+	/** Saved settings over the defaults; keys from earlier versions are dropped. */
 	async loadSettings(): Promise<void> {
-		const saved = (await this.loadData()) as Partial<ScholarAtlasSettings> | null;
-		this.settings = { ...defaultSettings(), ...saved };
-		this.settings.orcidChecked = { ...saved?.orcidChecked };
-		// Saved by an earlier version's graph panel, since removed.
-		delete (this.settings as unknown as Record<string, unknown>).graphFilters;
+		const saved = ((await this.loadData()) ?? {}) as Record<string, unknown>;
+		const settings = defaultSettings() as unknown as Record<string, unknown>;
+		for (const key of Object.keys(settings)) if (saved[key] !== undefined) settings[key] = saved[key];
+		this.settings = settings as unknown as ScholarAtlasSettings;
+		this.settings.orcidChecked = { ...this.settings.orcidChecked };
 	}
 
 	async saveSettings(): Promise<void> {
@@ -94,27 +96,44 @@ export default class ScholarAtlasPlugin extends Plugin {
 	private async fillCreated(file: TFile): Promise<void> {
 		// Let Obsidian finish creating and opening it first.
 		await new Promise((resolve) => window.setTimeout(resolve, 50));
-		if (!(await this.people.isPendingCreation(file))) return;
-		await this.run(`Looking up ${file.basename}…`, async () => (await this.people.created(file)) ?? '');
+		const id = await this.people.pendingCreation(file);
+		if (!id) return;
+		if (this.current) new Notice(`${file.basename} will be looked up when the current update finishes.`);
+		await this.run(`Looking up ${file.basename}…`, () => this.people.created(file, id), true);
 	}
 
 	private openAddPerson(): void {
 		if (!this.idle()) return;
-		new AddPersonModal(this.app, () => this.people.events(), (person) => {
-			void this.run(`Adding ${person.name}…`, () => this.people.add(person));
+		new AddPersonModal(this.app, {
+			events: () => this.people.events(),
+			search: (name) => this.people.sources().candidates(name, '', 5),
+			onSubmit: (person) => void this.run(`Adding ${person.name}…`, () => this.people.add(person)),
 		}).open();
 	}
 
 	/** Whether no job is running; says so if one is. */
 	private idle(): boolean {
-		if (this.busy) new Notice('Scholar Atlas is already updating. Try again when it finishes.');
-		return !this.busy;
+		if (this.current) new Notice('Scholar Atlas is still updating. Wait for its notice to finish, then try again.');
+		return !this.current;
 	}
 
-	/** Run one job at a time behind a progress notice, then report its result or error. */
-	private async run(message: string, job: (progress: (message: string) => void) => Promise<string>): Promise<void> {
-		if (!this.idle()) return;
-		this.busy = true;
+	/**
+	 * Run one job at a time behind a progress notice, then report its result or
+	 * error. A job that can't run now is refused, or (`queue`) waits its turn.
+	 */
+	private async run(message: string, job: (progress: (message: string) => void) => Promise<string>, queue = false): Promise<void> {
+		if (!queue && !this.idle()) return;
+		while (this.current) await this.current;
+		const running = this.perform(message, job);
+		this.current = running;
+		try {
+			await running;
+		} finally {
+			if (this.current === running) this.current = null;
+		}
+	}
+
+	private async perform(message: string, job: (progress: (message: string) => void) => Promise<string>): Promise<void> {
 		const notice = new Notice(message, 0);
 		try {
 			const result = await job((m) => notice.setMessage(m));
@@ -124,8 +143,6 @@ export default class ScholarAtlasPlugin extends Plugin {
 			console.error('Scholar Atlas:', e);
 			notice.hide();
 			new Notice(`Scholar Atlas failed: ${e instanceof Error ? e.message : String(e)}`, 10000);
-		} finally {
-			this.busy = false;
 		}
 	}
 }

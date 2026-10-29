@@ -105,7 +105,7 @@ export interface OrcidDate {
 export interface OrcidJob {
 	organization?: {
 		name?: string | null;
-		address?: { city?: string | null; country?: string | null } | null;
+		address?: { city?: string | null; region?: string | null; country?: string | null } | null;
 	} | null;
 	'start-date'?: OrcidDate | null;
 	'end-date'?: OrcidDate | null;

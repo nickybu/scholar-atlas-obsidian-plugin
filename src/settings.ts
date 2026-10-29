@@ -1,4 +1,4 @@
-import { PluginSettingTab, SecretComponent, type Setting, type SettingDefinitionItem, type TFile } from 'obsidian';
+import { debounce, PluginSettingTab, SecretComponent, type Setting, type SettingDefinitionItem, type TFile } from 'obsidian';
 import { TagSuggest } from './tag-suggest.ts';
 import type ScholarAtlasPlugin from './main.ts';
 import { type Match, type NoteSelector, orFolder, selector } from './selector.ts';
@@ -37,7 +37,7 @@ export interface ScholarAtlasSettings {
 }
 
 /** Defaults for everything but state, which {@link defaultSettings} creates fresh. */
-export const DEFAULT_SETTINGS: Omit<ScholarAtlasSettings, 'orcidChecked'> = {
+const DEFAULT_SETTINGS: Omit<ScholarAtlasSettings, 'orcidChecked'> = {
 	peopleFolder: 'People',
 	peopleTags: '',
 	peopleMatch: 'any',
@@ -239,8 +239,14 @@ export class ScholarAtlasSettingTab extends PluginSettingTab {
 		});
 	}
 
-	/** Show how many notes the people and events settings pick out right now, with a few names. */
-	private refreshCounts(): void {
+	/**
+	 * Show how many notes the people and events settings pick out right now,
+	 * with a few names. Counting by tag scans the vault, so while you type it
+	 * waits for a pause.
+	 */
+	private readonly refreshCounts = debounce(() => this.countNow(), 300, true);
+
+	private countNow(): void {
 		const people = this.plugin.people;
 		if (!people) return;
 		const describe = (notes: TFile[], one: string, many: string) => {

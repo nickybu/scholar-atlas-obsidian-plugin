@@ -26,6 +26,11 @@ export function safeName(name: string): string {
 	return name.replace(/[\\/:*?"<>|#^[\]]/g, ' ').replace(/\s+/g, ' ').trim().replace(/\.+$/, '');
 }
 
+/** A name as a link alias: without the characters that would end the link early. */
+export function linkAlias(name: string): string {
+	return name.replace(/[[\]|]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
 /** The name in a `[[path|name]]` or `[[name]]` link, or the text itself. */
 export function linkName(value: unknown): string {
 	if (typeof value !== 'string') return '';
@@ -61,6 +66,13 @@ export class Places {
 	private byId: Map<string, string> | null = null;
 	/** Creations in flight, so people updated in parallel don't create the same note twice. */
 	private readonly creating = new Map<string, Promise<void>>();
+	/**
+	 * Properties of the notes created in this run. Obsidian indexes a new note
+	 * a moment after it's written, so until then they're looked up here: a
+	 * same-named place in another country is told apart even when the two are
+	 * created moments apart by people updated in parallel.
+	 */
+	private readonly created = new Map<string, Frontmatter>();
 
 	constructor(app: App, settings: ScholarAtlasSettings) {
 		this.app = app;
@@ -74,6 +86,7 @@ export class Places {
 	/** Forget the note index, e.g. at the start of a run. */
 	reset(): void {
 		this.byId = null;
+		this.created.clear();
 	}
 
 	private index(): Map<string, string> {
@@ -98,7 +111,8 @@ export class Places {
 
 	private props(path: string): Frontmatter | undefined {
 		const file = this.app.vault.getFileByPath(`${path}.md`);
-		return file ? (this.app.metadataCache.getFileCache(file)?.frontmatter) : undefined;
+		if (!file) return undefined;
+		return this.app.metadataCache.getFileCache(file)?.frontmatter ?? this.created.get(path);
 	}
 
 	link(path: string): string {
@@ -284,6 +298,7 @@ export class Places {
 		// Properties and body in one write.
 		const front = Object.keys(props).length ? `---\n${stringifyYaml(props)}---\n` : '';
 		await vault.create(path, front + this.body(spec.kind));
+		this.created.set(spec.path, props);
 		if (typeof props.openalex === 'string') this.index().set(props.openalex, spec.path);
 	}
 
